@@ -50,6 +50,37 @@ def failing_fetch(reason="the download returned HTTP 404 (Not Found)"):
     return _fetch
 
 
+class DetectFormTest(unittest.TestCase):
+    """The workflow triggers on every issue and keys on the form's own headings,
+    not a label the template cannot create (#31). is_intake_form is that gate."""
+
+    def test_the_record_form_is_detected(self):
+        self.assertTrue(intake.is_intake_form(read_fixture("with-attachment.md")))
+        self.assertTrue(intake.is_intake_form(read_fixture("without-attachment.md")))
+
+    def test_an_unrelated_issue_is_not_detected(self):
+        # A plain bug report with neither required heading must be ignored, so the
+        # workflow leaves it alone. This is the check's proof it can fail.
+        self.assertFalse(intake.is_intake_form(
+            "### Steps to reproduce\n\nClick the thing.\n\n### What I expected\n\nNot that.\n"))
+        self.assertFalse(intake.is_intake_form("Just a comment, no headings at all."))
+
+    def test_one_heading_missing_is_not_enough(self):
+        # Both the record-type and the effective-date heading are required; one
+        # alone (e.g. a form someone half-pasted) is not a record form.
+        self.assertFalse(intake.is_intake_form("### Record type\n\nnotice\n"))
+        self.assertFalse(intake.is_intake_form("### Date it takes effect\n\n2026-01-15\n"))
+
+    def test_detect_cli_mode_returns_zero_or_one(self):
+        with tempfile.TemporaryDirectory() as d:
+            form = Path(d) / "form.md"
+            form.write_text(read_fixture("with-attachment.md"), encoding="utf-8")
+            self.assertEqual(intake.run(["--detect", "--body-file", str(form)]), 0)
+            other = Path(d) / "other.md"
+            other.write_text("### Bug\n\nbroken\n", encoding="utf-8")
+            self.assertEqual(intake.run(["--detect", "--body-file", str(other)]), 1)
+
+
 class ParseFormTest(unittest.TestCase):
     def test_parses_every_field_with_attachment(self):
         form = intake.parse_issue_form(read_fixture("with-attachment.md"))
@@ -138,6 +169,10 @@ class ScaffoldTest(unittest.TestCase):
         self.assertIn("status: draft", record)
         self.assertNotIn("kind: pdf", record)   # no source block in the frontmatter
         self.assertIn("Add the original document by hand", record)
+        # No file was attached, so the note must say exactly that — never that a
+        # download failed, which would be a lie when nothing was dragged in (#31).
+        self.assertIn("No file was attached", record)
+        self.assertNotIn("could not be downloaded", record)
 
         # A draft needs no source, so it still validates clean.
         self.assertEqual(self._validate(), [])
@@ -153,7 +188,37 @@ class ScaffoldTest(unittest.TestCase):
         record = (self.vault / result["record_path"]).read_text(encoding="utf-8")
         self.assertNotIn("kind: pdf", record)   # no source block in the frontmatter
         self.assertIn("Add the original document by hand", record)
+        # A file WAS attached but could not be fetched, so the note says that —
+        # the mirror of the no-attachment case above; the two never share wording.
+        self.assertIn("could not be downloaded", record)
+        self.assertNotIn("No file was attached", record)
         self.assertEqual(self._validate(), [])
+
+    def test_scaffold_writes_only_vault_files_not_the_workflow_working_files(self):
+        # The workflow's working files (the issue body, the JSON result, the
+        # validator output) belong in the runner temp dir, never the checkout, so
+        # they are not committed onto the intake branch (#31). intake.py must write
+        # nothing but vault content: the record, and (when fetched) the library
+        # file and its manifest. This proves the script half of that contract.
+        before = {p.relative_to(self.vault)
+                  for p in self.vault.rglob("*") if p.is_file()}
+        result = intake.scaffold(self.vault, read_fixture("with-attachment.md"),
+                                 fetch=fake_fetch())
+        after = {p.relative_to(self.vault)
+                 for p in self.vault.rglob("*") if p.is_file()}
+        new = {str(p) for p in (after - before)}
+
+        # Only the record and the downloaded library file are *new*; the manifest
+        # ships with the template and is updated in place, not created.
+        self.assertEqual(new, {
+            result["record_path"],
+            result["attachment"]["file"],
+        })
+        manifest = validate._load_manifest(self.vault)
+        self.assertIn(result["attachment"]["file"], manifest)
+        for stray in ("issue-body.md", "intake-result.json", "validate.txt"):
+            self.assertNotIn(stray, new)
+            self.assertFalse((self.vault / stray).exists())
 
 
 if __name__ == "__main__":

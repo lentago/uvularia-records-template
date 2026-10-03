@@ -89,6 +89,28 @@ class IntakeError(Exception):
 # Parsing the issue form body.                                                 #
 # --------------------------------------------------------------------------- #
 
+def _heading_labels(body):
+    """The set of ``### <label>`` headings in the body, labels stripped."""
+    body = body.replace("\r\n", "\n").replace("\r", "\n")
+    return {
+        line.strip()[4:].strip()
+        for line in body.split("\n")
+        if line.strip().startswith("### ")
+    }
+
+
+def is_intake_form(body):
+    """True if this issue body is an "Add a record" form.
+
+    Detected by the form's own required headings, not a label: every rendered
+    form carries the record-type and effective-date fields. This is what lets
+    the workflow trigger on any issue and quietly ignore the ones that are not
+    records, so a client never has to create a label by hand.
+    """
+    headings = _heading_labels(body)
+    return "Record type" in headings and "Date it takes effect" in headings
+
+
 def parse_issue_form(body):
     """Split an "Add a record" issue body into its fields.
 
@@ -210,13 +232,15 @@ def _yaml_str(value):
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def render_record(fields, source=None):
+def render_record(fields, source=None, attachment_found=False):
     """The scaffolded record file: filled frontmatter plus a prose stub.
 
     ``source`` is a dict ``{"file": ..., "sha256": ...}`` when a file was
-    downloaded, otherwise None. A draft needs no source to validate, so when the
-    attachment could not be fetched the record is written without one and the
-    prose carries a visible note to add the file by hand.
+    downloaded, otherwise None. A draft needs no source to validate, so when
+    there is no source the prose carries a visible note to add the file by hand.
+    The note says the truth about why: if ``attachment_found`` is true a file was
+    attached but could not be downloaded; if it is false no file was attached at
+    all. Never claim a download failed when nothing was attached.
     """
     fm = [
         "---",
@@ -248,11 +272,15 @@ def render_record(fields, source=None):
     summary = fields["summary"] or "_Add a plain-English summary of this record._"
     body = ["", f"# {fields['title']}", "", summary, ""]
     if not source:
+        if attachment_found:
+            why = ("The file attached to the issue could not be downloaded "
+                   "automatically, so this record has no `source` yet.")
+        else:
+            why = ("No file was attached to the issue, so this record has no "
+                   "`source` yet.")
         body += [
-            "> **Add the original document by hand.** The file attached to the "
-            "issue could not be downloaded automatically, so this record has no "
-            "`source` yet. Put the original under "
-            f"`library/files/{fields['type']}/`, add it to "
+            f"> **Add the original document by hand.** {why} Put the original "
+            f"under `library/files/{fields['type']}/`, add it to "
             "`library/manifest.json` with its sha256 (`sha256sum <file>`), and "
             "add a `source:` block to the frontmatter above. A reviewer must do "
             "this before approving the record.",
@@ -355,19 +383,29 @@ def scaffold(vault, body, fetch=download):
 
     record_path = vault / fields["rel_path"]
     record_path.parent.mkdir(parents=True, exist_ok=True)
-    record_path.write_text(render_record(fields, source=source), encoding="utf-8")
+    record_path.write_text(
+        render_record(fields, source=source, attachment_found=attachment is not None),
+        encoding="utf-8")
     return result
 
 
 def run(argv=None):
     parser = argparse.ArgumentParser(description="Scaffold a vault record from an 'Add a record' issue.")
     parser.add_argument("--vault", default=".", help="the vault root (default: current directory)")
-    parser.add_argument("--issue", required=True, help="the issue number (for messages)")
+    parser.add_argument("--issue", help="the issue number (for messages)")
     parser.add_argument("--body-file", required=True, help="a file holding the issue body")
     parser.add_argument("--result-file", help="where to write the JSON result (default: stdout)")
+    parser.add_argument("--detect", action="store_true",
+                        help="exit 0 if the body is an 'Add a record' form, 1 otherwise; scaffold nothing")
     args = parser.parse_args(argv)
 
     body = Path(args.body_file).read_text(encoding="utf-8")
+
+    # Detection mode: the workflow runs on every issue and uses this to tell a
+    # record form from any other issue, so it needs no label. It writes nothing.
+    if args.detect:
+        return 0 if is_intake_form(body) else 1
+
     try:
         result = scaffold(args.vault, body)
     except IntakeError as exc:

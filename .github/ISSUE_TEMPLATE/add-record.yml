@@ -1,7 +1,6 @@
 name: Add a record
 description: Post one public record — minutes, a notice, a policy, a filing. No git needed; this opens a pull request for you.
 title: "Add a record: "
-labels: [add-record]
 body:
   - type: markdown
     attributes:

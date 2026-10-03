@@ -86,6 +86,16 @@ the pull request still opens and says plainly that the file must be added by han
 it never fails silently. To fix a typo, just **edit the issue**; the same pull
 request updates.
 
+> **One-time setting — letting the workflow open the pull request.** GitHub ships
+> new repositories with *Allow GitHub Actions to create and approve pull requests*
+> **off**. While it is off, intake still scaffolds the record and pushes the branch
+> `intake/<issue number>`, but it cannot open the pull request — so instead of a PR
+> link the issue comment gives you a **one-click compare link** to open it yourself.
+> To let intake open the PR on its own from now on, turn the setting on once:
+> **Settings → Actions → General → Workflow permissions → Allow GitHub Actions to
+> create and approve pull requests** (an org admin may have to set it at the org
+> level), then edit the issue to re-run.
+
 ### The editor way — Obsidian
 
 **What you are about to do:** write one record and open a pull request for it.
