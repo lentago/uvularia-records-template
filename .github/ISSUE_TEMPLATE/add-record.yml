@@ -1,0 +1,88 @@
+name: Add a record
+description: Post one public record — minutes, a notice, a policy, a filing. No git needed; this opens a pull request for you.
+title: "Add a record: "
+labels: [add-record]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A **record** is one public document your organization has to show: a set
+        of minutes, a meeting notice, a policy, a filing. Fill this in and attach
+        the original file. A workflow turns it into a branch and a pull request
+        with the file saved and checked — you just review and merge.
+
+        The record is created as a **draft**. It does not publish until a
+        reviewer approves it on the pull request. Takes about a minute.
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Record type
+      description: What kind of document is this? It decides which folder the record goes in.
+      options:
+        - minutes
+        - notice
+        - agenda
+        - policy
+        - bylaw
+        - filing
+        - report
+        - announcement
+        - faq
+    validations:
+      required: true
+
+  - type: input
+    id: effective
+    attributes:
+      label: Date it takes effect
+      description: >
+        The date the document applies from — the day the meeting happened, the
+        notice was posted, or the policy took effect. Use YYYY-MM-DD, for example
+        2026-01-15.
+      placeholder: 2026-01-15
+    validations:
+      required: true
+
+  - type: input
+    id: title
+    attributes:
+      label: Title
+      description: A plain, human title. It shows on the site and in citations.
+      placeholder: Board meeting minutes, 15 January 2026
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Two-sentence summary
+      description: >
+        In one or two sentences, what does this record say? Written for a
+        neighbour, not a lawyer. You can expand it later in the pull request.
+      placeholder: The board approved the 2026 budget and set the annual meeting for March. Parking rules were left unchanged.
+    validations:
+      required: true
+
+  - type: input
+    id: subjects
+    attributes:
+      label: Subjects
+      description: >
+        A comma-separated list of topics this record is about — the words people
+        would search for. The Ask box matches questions against these. For
+        example: budget, parking, annual-meeting
+      placeholder: budget, parking, annual-meeting
+    validations:
+      required: true
+
+  - type: textarea
+    id: document
+    attributes:
+      label: The original document
+      description: >
+        Drag the original PDF (or scan) into this box to attach it. The workflow
+        saves it under library/ and records its checksum, so the record points at
+        the real file. If you cannot attach it now, leave this empty — the pull
+        request will open anyway and tell you how to add the file by hand.
+      placeholder: Drag and drop the PDF here.

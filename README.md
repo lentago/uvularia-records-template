@@ -45,13 +45,55 @@ a receipt under `receipts/`, and the three URLs above resolve.
 
 ---
 
-## 2. Add your first record — in Obsidian
+## 2. Add your first record
+
+There are two doors in, and both end in a pull request a reviewer merges. Use the
+**issue form** if you have a browser and a document; use **Obsidian** if you are
+already editing the vault.
+
+> **Heads up — nothing goes live on its own.** Both doors create the record as a
+> **draft**. A draft is saved and checked, but it is *not* published. It becomes
+> public only when a reviewer sets `status: approved` and the `approved` date on
+> the pull request and merges it. That is the review step by design: you can open
+> intake freely without anything reaching the site or the board until a person
+> says so.
+
+### The quick way — the "Add a record" issue form
+
+**What you are about to do:** file a short issue with your document attached, and
+get a pull request back with the record already written.
+
+**Why bother:** it is the no-git door. You do not clone anything, name any files,
+or compute a checksum — you answer six fields and drag in the PDF. This is the
+default way to post a record, and the one a new volunteer can do unaided.
+
+**How long:** about a minute.
+
+1. Go to the **Issues** tab → **New issue** → **Add a record**.
+2. Pick the record **type**, give the **date it takes effect**, a **title**, a
+   two-sentence **summary**, and the **subjects** (a comma list of topics). Drag
+   the original PDF into the last box.
+3. Submit. The **intake** workflow opens a branch `intake/<issue-number>` and a
+   pull request *Intake for #N* with the record scaffolded, your file saved under
+   `library/` with its checksum in [`library/manifest.json`](library/manifest.json),
+   and the validator's output in the pull-request body. It comments the link back
+   on your issue.
+
+**How you know it worked:** within a minute the issue gets a comment with a pull
+request link, and the pull request's **validate** check is green. If you could not
+attach the file (a private link can need a sign-in the workflow does not have),
+the pull request still opens and says plainly that the file must be added by hand —
+it never fails silently. To fix a typo, just **edit the issue**; the same pull
+request updates.
+
+### The editor way — Obsidian
 
 **What you are about to do:** write one record and open a pull request for it.
 
-**Why bother:** this is the whole job. A record is one Markdown file with a small
-block of structured fields at the top (the machine surface) and plain English
-underneath (for people).
+**Why bother:** when you are already in the vault, editing the Markdown directly
+is faster than a form. A record is one Markdown file with a small block of
+structured fields at the top (the machine surface) and plain English underneath
+(for people).
 
 **How long:** a few minutes once the document is in hand.
 
