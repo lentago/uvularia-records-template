@@ -30,7 +30,13 @@ Run it:
 
 ``--now`` fixes the evaluation instant (used by the tests; defaults to now, UTC).
 ``--warn-days`` is the amber window: an unmet obligation whose deadline falls
-within this many days is amber rather than no-data or red.
+within this many days is amber rather than no-data or red. ``--history-days`` is
+the trailing window each row's ``history`` track record is summarised over.
+
+Each row also carries a ``history`` object — ``{window_days, evaluated,
+breaches}`` — or ``null`` when the window holds no past deadline with a
+receipt-dated outcome. History is measured from receipts and records, never from
+the current date alone, so a later timely posting never erases an earlier breach.
 """
 
 import argparse
@@ -42,6 +48,11 @@ from pathlib import Path
 
 CORE_DIR = Path(__file__).resolve().parent
 SCHEMA_DIR = CORE_DIR / "schema"
+
+# The trailing window the board's track record is summarised over, in days. A
+# member or regulator asks "how often were you late?" over a span, not a day; two
+# years is long enough to carry more than one cycle of a monthly or annual rule.
+DEFAULT_HISTORY_DAYS = 730
 
 # Reuse the schema validator the core already ships — do not re-invent it. It is
 # optional: if it cannot be imported the evaluator still runs; it only powers the
@@ -489,6 +500,98 @@ _EVALUATORS = (
 )
 
 
+# --------------------------------------------------------------------------- #
+# History — the track record over a trailing window.                          #
+# --------------------------------------------------------------------------- #
+# The board row shows the *current* standing of a rule, so one timely posting
+# retires the red that late ones earned. The records and receipts keep the
+# history; this summarises it. For every deadline the vault can date from a
+# receipt, we record whether that posting was late (a breach), then count the
+# ones whose deadline falls in the trailing window. Two disciplines hold:
+#
+#   * A breach is dated from the receipt, never from "the deadline is now past".
+#     A period with nothing posted has no receipt-dated outcome, so it is simply
+#     not counted — the board never invents a breach from the calendar alone.
+#   * A later timely posting never erases an earlier late one: each deadline is
+#     judged on its own, so a breach that happened stays counted.
+
+def _historical_outcomes(obligation, records, pubs):
+    """Every (deadline_date, was_late) this obligation can date from a receipt.
+
+    One entry per past-or-future deadline that a *published* record settles; the
+    caller windows and filters to the past. ``was_late`` is the same lateness the
+    live evaluator uses, applied per record instead of only to the latest one."""
+    cands = _candidates(obligation, records, {"approved", "superseded"})
+
+    if "lead" in obligation:
+        spec = obligation["lead"]
+        offset = timedelta(hours=spec["hours"]) if "hours" in spec else timedelta(days=spec["days"])
+        out = []
+        for record in cands:
+            published = pubs.get(record["id"])
+            if published is None:
+                continue
+            deadline_instant = midnight_utc(parse_date(record["effective"])) - offset
+            out.append((deadline_instant.date(), published[0] > deadline_instant))
+        return out
+
+    if "lag" in obligation:
+        spec = obligation["lag"]
+        out = []
+        for record in cands:
+            published = pubs.get(record["id"])
+            if published is None:
+                continue
+            deadline_date = parse_date(record["effective"]) + timedelta(days=spec["days"])
+            out.append((deadline_date, published[0].date() > deadline_date))
+        return out
+
+    if "one_off" in obligation:
+        due = parse_date(obligation["one_off"]["due"])
+        published = [pubs[r["id"]][0] for r in cands if r["id"] in pubs]
+        if not published:
+            return []
+        when = min(published)
+        return [(due, when.date() > due)]
+
+    if "cadence" in obligation:
+        spec = obligation["cadence"]
+        # A cadence deadline is the *next* review's due date, so one record cannot
+        # judge its own timeliness — it is judged by the one that follows it.
+        published = sorted(
+            (r for r in cands if r["id"] in pubs),
+            key=lambda r: (parse_date(r["effective"]), r["id"]),
+        )
+        out = []
+        for prev, cur in zip(published, published[1:]):
+            deadline_date = add_months(parse_date(prev["effective"]), spec["months"])
+            out.append((deadline_date, pubs[cur["id"]][0].date() > deadline_date))
+        return out
+
+    return []
+
+
+def obligation_history(obligation, records, pubs, now, window_days):
+    """Summarise the trailing window as ``{window_days, evaluated, breaches}``.
+
+    Returns ``None`` when no past deadline in the window has a receipt-dated
+    outcome — the board renders that as "no history yet", never a zero breach."""
+    today = now.date()
+    start = today - timedelta(days=window_days)
+    in_window = [
+        (deadline, late)
+        for deadline, late in _historical_outcomes(obligation, records, pubs)
+        if start <= deadline <= today
+    ]
+    if not in_window:
+        return None
+    return {
+        "window_days": window_days,
+        "evaluated": len(in_window),
+        "breaches": sum(1 for _, late in in_window if late),
+    }
+
+
 def evaluate_obligation(obligation, records, pubs, now, warn_days):
     for key, fn in _EVALUATORS:
         if key in obligation:
@@ -507,8 +610,11 @@ def _duplicate_ids(obligations):
     return sorted(oid for oid, n in counts.items() if n > 1)
 
 
-def evaluate(root, now=None, warn_days=7):
-    """Evaluate the vault at ``root`` and return the standing rows, sorted by id."""
+def evaluate(root, now=None, warn_days=7, history_days=DEFAULT_HISTORY_DAYS):
+    """Evaluate the vault at ``root`` and return the standing rows, sorted by id.
+
+    Each row carries its current state and a ``history`` summary over the trailing
+    ``history_days`` window (``None`` when the window holds nothing datable)."""
     root = Path(root)
     if now is None:
         now = datetime.now(timezone.utc)
@@ -522,7 +628,11 @@ def evaluate(root, now=None, warn_days=7):
         )
     records = load_records(root)
     pubs = publish_index(load_receipts(root))
-    rows = [evaluate_obligation(o, records, pubs, now, warn_days) for o in obligations]
+    rows = []
+    for o in obligations:
+        row = evaluate_obligation(o, records, pubs, now, warn_days)
+        row["history"] = obligation_history(o, records, pubs, now, history_days)
+        rows.append(row)
     rows.sort(key=lambda r: r["id"])
     return rows
 
@@ -546,6 +656,8 @@ def main(argv=None):
     parser.add_argument("--now", help="evaluation instant, ISO 8601 (default: now, UTC)")
     parser.add_argument("--warn-days", type=int, default=7,
                         help="amber window in days for an unmet, upcoming deadline (default: 7)")
+    parser.add_argument("--history-days", type=int, default=DEFAULT_HISTORY_DAYS,
+                        help=f"trailing window in days for each row's track record (default: {DEFAULT_HISTORY_DAYS})")
     args = parser.parse_args(argv)
 
     now = None
@@ -555,7 +667,7 @@ def main(argv=None):
             parser.error(f"could not parse --now value {args.now!r}")
 
     try:
-        rows = evaluate(args.root, now=now, warn_days=args.warn_days)
+        rows = evaluate(args.root, now=now, warn_days=args.warn_days, history_days=args.history_days)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
