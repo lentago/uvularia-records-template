@@ -9,7 +9,7 @@
     "row": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "state", "satisfied_by", "deadline", "published_at", "gap"],
+      "required": ["id", "state", "satisfied_by", "deadline", "published_at", "gap", "history"],
       "properties": {
         "id": {
           "type": "string",
@@ -28,7 +28,30 @@
           "type": ["string", "null"],
           "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2})?(Z|[+-][0-9]{2}:[0-9]{2})?)?$"
         },
-        "gap": { "type": ["integer", "null"] }
+        "gap": { "type": ["integer", "null"] },
+        "history": {
+          "description": "Track record over a trailing window, measured from receipts and records — never from the current date alone. null means the window held no past deadline with a receipt-dated outcome: the board says 'no history yet', never a fabricated zero.",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["window_days", "evaluated", "breaches"],
+          "properties": {
+            "window_days": {
+              "description": "Width of the trailing window in days.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "evaluated": {
+              "description": "Past deadlines in the window that had a receipt-dated outcome. At least 1 whenever history is non-null; otherwise history is null.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "breaches": {
+              "description": "How many of the evaluated deadlines were red at the deadline. A later timely posting never retires a breach that already happened.",
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
       }
     }
   }

@@ -70,6 +70,30 @@ Each row is defined by [`standing.schema.json`](schema/standing.schema.json):
   measure. For a posted record it is `published − deadline` (how early or late you
   posted); for an unmet, upcoming rule it is `today − deadline` (days of slack
   left, as a negative number).
+- **`history`** — the rule's track record over a trailing window:
+  `{window_days, evaluated, breaches}`, or `null`. See below.
+
+## The track record, over time
+
+A row shows the *current* standing, so one timely posting retires the red that
+late ones earned — the lateness stays in the records and receipts but drops off
+the live row. `history` is what a member or regulator actually asks for: not "are
+you late right now" but "how often were you late?" Over a trailing window
+(`--history-days`, default two years) it counts:
+
+- **`window_days`** — the width of that window, in days.
+- **`evaluated`** — how many *past* deadlines in the window had a receipt-dated
+  outcome: a posting whose receipt dates it against the deadline.
+- **`breaches`** — how many of those were red at the deadline (posted late, or
+  for a cadence rule, the next review landed after its due date).
+
+Two disciplines hold it honest. It is measured from receipts, **never from the
+calendar alone** — a period with nothing posted has no receipt-dated outcome, so
+it is simply not counted, and the board never invents a breach from "the deadline
+is now past." And **a later timely posting never erases an earlier breach**: each
+deadline is judged on its own. When the window holds no past, receipt-dated
+deadline, `history` is `null` and the board reads "no history yet" — which is not
+a zero-breach pass.
 
 ## How the deadline is computed, per rule kind
 

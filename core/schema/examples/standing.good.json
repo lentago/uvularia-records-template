@@ -5,7 +5,12 @@
     "satisfied_by": "2026-09-14-september-meeting-notice",
     "deadline": "2026-09-14",
     "published_at": "2026-09-11T09:20:00Z",
-    "gap": -3
+    "gap": -3,
+    "history": {
+      "window_days": 730,
+      "evaluated": 12,
+      "breaches": 2
+    }
   },
   {
     "id": "minutes-within-30-days",
@@ -13,6 +18,7 @@
     "satisfied_by": null,
     "deadline": null,
     "published_at": null,
-    "gap": null
+    "gap": null,
+    "history": null
   }
 ]
