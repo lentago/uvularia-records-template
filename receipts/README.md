@@ -1,7 +1,7 @@
 # receipts/ — one stamped receipt per publish, append-only
 
 Every time the publish workflow runs, it writes one receipt here named
-`YYYY-MM-DD-<digest>.md`. A receipt is the proof of a single publish: it records
+`<YYYY-MM-DDTHHMMSSZ>-<digest>.md`. A receipt is the proof of a single publish: it records
 
 - the **corpus digest** that publish produced — the exact version every consumer
   pins;

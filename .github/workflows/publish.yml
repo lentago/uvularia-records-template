@@ -80,7 +80,7 @@ jobs:
           cp _out/corpus-*.json _pub/corpus-latest.json   # pointer to the newest bundle
           cp _out/standing.json _pub/standing.json        # overwritten each publish
           cp _out/feed.xml      _pub/feed.xml             # overwritten each publish
-          cp _out/receipts/*.md _pub/receipts/            # new receipt; never replaces an old one
+          cp -n _out/receipts/*.md _pub/receipts/         # new receipt; never replaces an old one (names carry the publish instant; -n is the second guard)
 
       - name: Commit and push the published branch
         run: |
