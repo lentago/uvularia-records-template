@@ -26,7 +26,7 @@ tests, so the build that CI runs is the build you can run by hand.
     produced by ``evaluate.py`` so there is exactly one evaluator.
   * ``feed.xml``              — an Atom feed of ``announcement`` records, newest
     ``publish_at`` first.
-  * ``receipts/<YYYY-MM-DD>-<digest>.md`` — the append-only receipt
+  * ``receipts/<YYYY-MM-DDTHHMMSSZ>-<digest>.md`` — the append-only receipt
     (``schema/receipt.schema.json`` in its frontmatter). ``published_at`` is the
     server-side time you pass in, never an author's clock; ``run_url`` is the
     Actions run.
@@ -234,8 +234,15 @@ def receipt_markdown(receipt):
 
 
 def receipt_name(published_at, digest):
-    day = _evaluate.parse_datetime(published_at).date().isoformat()
-    return f"{day}-{digest}.md"
+    """``<YYYY-MM-DDTHHMMSSZ>-<digest>.md`` — one file per publish, never reused.
+
+    The name carries the publish instant, not just the day: two publishes with an
+    unchanged corpus share a digest, and a day-plus-digest name would make the
+    second overwrite the first and erase the record provenance it carried."""
+    stamp = re.sub(r"[^0-9TZ]", "", published_at.replace("+00:00", "Z"))
+    if not stamp.endswith("Z"):
+        stamp += "Z"
+    return f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:8]}T{stamp[9:15]}Z-{digest}.md"
 
 
 # --------------------------------------------------------------------------- #

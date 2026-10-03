@@ -145,7 +145,7 @@ It carries the server-side timestamp of the publish — never an author's clock 
 **How long:** a minute.
 
 1. On the `published` branch, open [`receipts/`](receipts/README.md). There is one
-   file per publish, named `YYYY-MM-DD-<digest>.md`.
+   file per publish, named `<YYYY-MM-DDTHHMMSSZ>-<digest>.md` (the publish instant, so no two publishes share a file).
 2. Read the frontmatter: the corpus **digest** everyone pins, the **published_at**
    time, the **run URL** you can click to the exact Actions run, the **commit**,
    what records changed, and how the obligations stood.
@@ -167,7 +167,7 @@ appends to the `published` branch:
 | `corpus-<digest>.json` | the published records, in the Ask engine's entry shape — [schema](core/schema/bundle.schema.json) |
 | `standing.json` | the live board data, one row per obligation — [schema](core/schema/standing.schema.json) |
 | `feed.xml` | an Atom feed of your announcements |
-| `receipts/YYYY-MM-DD-<digest>.md` | the stamped, append-only receipt — [schema](core/schema/receipt.schema.json) |
+| `receipts/<YYYY-MM-DDTHHMMSSZ>-<digest>.md` | the stamped, append-only receipt — [schema](core/schema/receipt.schema.json) |
 | a provenance attestation | a signed statement that this corpus came from this commit |
 
 Only **approved, public** records publish. Nothing in `intake/` is ever built —
