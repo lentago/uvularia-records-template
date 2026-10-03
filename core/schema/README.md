@@ -117,10 +117,20 @@ it, so it is the single source of compliance state.
 | `deadline` | The relevant deadline date, or `null`. | A wrong deadline mis-colours the row. |
 | `published_at` | When the satisfying record was published (server-side), or `null`. | A client time here misstates when the obligation was met. |
 | `gap` | Days relative to the deadline, or `null`. Negative is ahead of the deadline; positive is overdue. | A wrong sign flips "early" and "late". |
+| `history` | Track record over a trailing window — `{window_days, evaluated, breaches}` — or `null`. | A fabricated zero-breach row would flatter a rule the vault cannot actually vouch for. |
 
-Every field is **required**, and the last four are nullable. A row with missing
-data is `no-data` with explicit `null`s — never a silently omitted field and
-never a fake green. (Invariant 5.)
+Every field is **required**, and all but `id` and `state` are nullable. A row
+with missing data is `no-data` with explicit `null`s — never a silently omitted
+field and never a fake green. (Invariant 5.)
+
+`history` is the one thing a current-state row cannot show: a timely posting
+retires the red that late ones earned, so the live row forgets the lateness. It
+carries `window_days` (the width of the trailing window), `evaluated` (past
+deadlines in that window with a receipt-dated outcome), and `breaches` (how many
+were red at their deadline). It is measured from receipts and records, never from
+the current date alone, so a later timely posting never erases an earlier breach.
+When the window holds no past, receipt-dated deadline, `history` is `null` — the
+board says "no history yet", which is not the same as zero breaches.
 
 ## receipt.schema.json — one publish, stamped
 
