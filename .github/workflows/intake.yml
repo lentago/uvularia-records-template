@@ -1,8 +1,13 @@
 # ============================================================================
 # intake — turn an "Add a record" issue into a scaffolded pull request
 # ============================================================================
-# When someone files the "Add a record" issue form (it carries the `add-record`
-# label), this workflow:
+# This workflow runs on every issue (opened or edited) and first asks one
+# question: is this the "Add a record" form? It decides by the form's own
+# headings (### Record type, ### Date it takes effect), not by a label — a fresh
+# repo has no custom labels, so keying on one would silently do nothing. Any
+# other issue is left alone with a log line and the job ends green.
+#
+# When it is the form, the workflow:
 #
 #   1. writes the issue body to a file (never through the shell — the body is
 #      untrusted text);
@@ -20,6 +25,15 @@
 # file cannot be downloaded (a private attachment URL needs a browser session),
 # the pull request still opens and says plainly that the file must be added by
 # hand — the workflow never fails silently.
+#
+# The working files (the issue body, the script's JSON result, the validator
+# output) are written to the runner's temp dir, NOT the checkout, so they never
+# land on the intake branch — only the scaffolded record and its library file do.
+#
+# GitHub ships with "Allow GitHub Actions to create and approve pull requests"
+# OFF. When it is off the branch push still works but opening the pull request
+# returns 403; this workflow catches that and comments the branch's compare link
+# and the one-time setting on the issue, then ends green rather than erroring.
 #
 # Everything the record step does is in one stdlib-only Python file a tech
 # director can read: scripts/intake.py. This workflow only wires it to the issue,
@@ -45,8 +59,6 @@ concurrency:
 
 jobs:
   intake:
-    # Only the "Add a record" form (it applies this label) reaches this job.
-    if: contains(github.event.issue.labels.*.name, 'add-record')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,17 +74,29 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            fs.writeFileSync('issue-body.md', context.payload.issue.body || '');
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/issue-body.md`, context.payload.issue.body || '');
+
+      - name: Is this the "Add a record" form?
+        id: detect
+        run: |
+          set -euo pipefail
+          if python3 scripts/intake.py --detect --body-file "$RUNNER_TEMP/issue-body.md"; then
+            echo "is_form=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_form=false" >> "$GITHUB_OUTPUT"
+            echo "Issue #${{ github.event.issue.number }} is not an \"Add a record\" form (no '### Record type' / '### Date it takes effect' headings). Nothing to do."
+          fi
 
       - name: Scaffold the record from the form
         id: scaffold
+        if: steps.detect.outputs.is_form == 'true'
         continue-on-error: true   # a bad form is reported as a comment, not a crash
         run: |
           python3 scripts/intake.py \
             --vault . \
             --issue "${{ github.event.issue.number }}" \
-            --body-file issue-body.md \
-            --result-file intake-result.json
+            --body-file "$RUNNER_TEMP/issue-body.md" \
+            --result-file "$RUNNER_TEMP/intake-result.json"
 
       - name: If the form could not be used, say why on the issue and stop
         if: steps.scaffold.outcome == 'failure'
@@ -81,7 +105,7 @@ jobs:
           script: |
             const fs = require('fs');
             let error = 'The form could not be read.';
-            try { error = JSON.parse(fs.readFileSync('intake-result.json', 'utf8')).error || error; }
+            try { error = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/intake-result.json`, 'utf8')).error || error; }
             catch (e) {}
             const marker = '<!-- uvularia-intake -->';
             const body = `${marker}\n**This record could not be scaffolded yet.**\n\n` +
@@ -129,7 +153,7 @@ jobs:
         continue-on-error: true   # the output goes in the PR body either way
         run: |
           set -o pipefail
-          python3 core/validate.py . --base-ref "origin/${{ github.event.repository.default_branch }}" 2>&1 | tee validate.txt
+          python3 core/validate.py . --base-ref "origin/${{ github.event.repository.default_branch }}" 2>&1 | tee "$RUNNER_TEMP/validate.txt"
 
       - name: Open (or update) the pull request and comment on the issue
         if: steps.scaffold.outcome == 'success'
@@ -142,21 +166,30 @@ jobs:
             const {owner, repo} = context.repo;
             const base = context.payload.repository.default_branch;
 
-            const result = JSON.parse(fs.readFileSync('intake-result.json', 'utf8'));
+            const result = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/intake-result.json`, 'utf8'));
             let validateTxt = '';
-            try { validateTxt = fs.readFileSync('validate.txt', 'utf8').trim(); } catch (e) {}
+            try { validateTxt = fs.readFileSync(`${process.env.RUNNER_TEMP}/validate.txt`, 'utf8').trim(); } catch (e) {}
             const validateOk = '${{ steps.validate.outcome }}' === 'success';
 
             // The attachment status, in plain words.
             const att = result.attachment || {found: false};
             let attLine;
             if (!att.found) {
-              attLine = 'No file was attached. Add the original document to `library/` before approving.';
+              attLine = 'No file was attached; add the original by hand to `library/` before approving.';
             } else if (att.downloaded) {
               attLine = `Saved \`${att.file}\` and recorded its checksum in \`library/manifest.json\`.`;
             } else {
               attLine = `⚠️ The attached file **could not be downloaded** (${att.reason}). ` +
                 `Add it to \`library/\` by hand — see the note in the record. The record has no \`source\` yet.`;
+            }
+
+            // Upsert the marked issue comment (one per issue, re-pointed on edits).
+            const marker = '<!-- uvularia-intake -->';
+            async function comment(markdown) {
+              const {data: comments} = await github.rest.issues.listComments({owner, repo, issue_number: num});
+              const existing = comments.find(c => c.body && c.body.includes(marker));
+              if (existing) await github.rest.issues.updateComment({owner, repo, comment_id: existing.id, body: markdown});
+              else await github.rest.issues.createComment({owner, repo, issue_number: num, body: markdown});
             }
 
             const body = [
@@ -188,21 +221,41 @@ jobs:
             const open = await github.rest.pulls.list({owner, repo, head: `${owner}:${branch}`, state: 'open'});
             let pr = open.data[0];
             if (!pr) {
-              const created = await github.rest.pulls.create({
-                owner, repo, head: branch, base,
-                title: `Intake for #${num}: ${result.title}`,
-                body,
-              });
-              pr = created.data;
+              try {
+                const created = await github.rest.pulls.create({
+                  owner, repo, head: branch, base,
+                  title: `Intake for #${num}: ${result.title}`,
+                  body,
+                });
+                pr = created.data;
+              } catch (e) {
+                // GitHub ships "Allow GitHub Actions to create and approve pull
+                // requests" OFF; without it POST /pulls returns 403. The branch is
+                // already pushed, so this is not a failure — tell the filer how to
+                // finish by hand or turn the setting on, and end the run green.
+                const forbidden = e.status === 403 &&
+                  /not permitted to create or approve pull requests/i.test(e.message || '');
+                if (!forbidden) throw e;
+                const compare = `https://github.com/${owner}/${repo}/compare/${base}...${branch}?expand=1`;
+                core.warning(
+                  'GitHub Actions is not permitted to create pull requests in this repo. ' +
+                  'The branch was pushed; commented the compare link and the setting on the issue.');
+                await comment(
+                  `${marker}\nYour record is scaffolded on branch \`${branch}\`, but this repo does ` +
+                  `not let GitHub Actions open the pull request for you (that is GitHub's default).\n\n` +
+                  `**Open it yourself in one click:** ${compare}\n\n` +
+                  `**Or turn it on once** so intake opens the PR by itself from now on: ` +
+                  `**Settings → Actions → General → Workflow permissions → Allow GitHub Actions to ` +
+                  `create and approve pull requests**, then edit this issue to re-run.\n\n` +
+                  `Either way the record is a **draft** until a reviewer approves it. ` +
+                  `**Attached document:** ${attLine}`);
+                return;
+              }
             }
 
-            const marker = '<!-- uvularia-intake -->';
-            const comment = `${marker}\nOpened a pull request for this record: ${pr.html_url}\n\n` +
+            await comment(
+              `${marker}\nOpened a pull request for this record: ${pr.html_url}\n\n` +
               `It is a **draft** until a reviewer approves it. ` +
               (att.found && !att.downloaded
                 ? `\n\n⚠️ The attached file could not be downloaded automatically — it must be added by hand before approval.`
-                : '');
-            const {data: comments} = await github.rest.issues.listComments({owner, repo, issue_number: num});
-            const existing = comments.find(c => c.body && c.body.includes(marker));
-            if (existing) await github.rest.issues.updateComment({owner, repo, comment_id: existing.id, body: comment});
-            else await github.rest.issues.createComment({owner, repo, issue_number: num, body: comment});
+                : ''));
