@@ -10,7 +10,7 @@ plain-English line naming the file and what to change, and exits non-zero.
     python3 core/validate.py path/to/vault
     python3 core/validate.py .                 # the vault is the current dir
 
-The seven checks, each independently switchable from ``validate.toml`` at the
+The eight checks, each independently switchable from ``validate.toml`` at the
 vault root (see ``[checks]`` below). Every one defaults to on:
 
   1. schema            every records/**/*.md has frontmatter that validates
@@ -28,6 +28,9 @@ vault root (see ``[checks]`` below). Every one defaults to on:
                        (default origin/main) has been removed from the tree:
                        retract or supersede instead, never delete.
   7. intake_isolation  nothing in records/ or index.md links into intake/.
+  8. unique_obligation_ids  obligation ids are unique across all files under
+                       obligations/ (JSON and YAML); the message names both
+                       conflicting files so the duplicate is easy to find.
 
 ``validate.toml`` (all optional; omit the file to accept every default):
 
@@ -39,6 +42,7 @@ vault root (see ``[checks]`` below). Every one defaults to on:
     privacy = true
     no_delete = true
     intake_isolation = true
+    unique_obligation_ids = true
 
     [privacy]
     denylist = ["Jane Q. Resident", "Unit 4B"]   # literal strings, case-insensitive
@@ -409,6 +413,7 @@ _DEFAULT_CHECKS = {
     "privacy": True,
     "no_delete": True,
     "intake_isolation": True,
+    "unique_obligation_ids": True,
 }
 
 
@@ -624,6 +629,44 @@ def check_intake_isolation(root, records, _cfg):
     return problems
 
 
+def check_unique_obligation_ids(root, records, _cfg):
+    obligations_dir = root / "obligations"
+    if not obligations_dir.is_dir():
+        return []
+    seen = {}  # id -> vault-relative path of the first file that declared it
+    problems = []
+    for path in sorted(obligations_dir.rglob("*")):
+        if not path.is_file() or path.suffix not in {".yaml", ".yml", ".json"}:
+            continue
+        rel = path.relative_to(root).as_posix()
+        try:
+            if path.suffix == ".json":
+                data = json.loads(path.read_text(encoding="utf-8"))
+            else:
+                data = parse_yaml(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, YamlError, OSError):
+            continue  # parse errors are the schema check's job
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            items = [data]
+        else:
+            items = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            oid = item.get("id")
+            if not oid or not isinstance(oid, str):
+                continue
+            if oid in seen:
+                problems.append(
+                    f"{rel}: obligation id '{oid}' is already declared in {seen[oid]}; "
+                    f"each obligation id must be unique across the vault")
+            else:
+                seen[oid] = rel
+    return problems
+
+
 _CHECK_FUNCS = {
     "schema": check_schema,
     "approved_source": check_approved_source,
@@ -632,6 +675,7 @@ _CHECK_FUNCS = {
     "privacy": check_privacy,
     "no_delete": check_no_delete,
     "intake_isolation": check_intake_isolation,
+    "unique_obligation_ids": check_unique_obligation_ids,
 }
 
 

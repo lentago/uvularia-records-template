@@ -497,12 +497,29 @@ def evaluate_obligation(obligation, records, pubs, now, warn_days):
     return _no_data(obligation.get("id", "unknown"))
 
 
+def _duplicate_ids(obligations):
+    """Return a sorted list of obligation ids that appear more than once."""
+    counts = {}
+    for ob in obligations:
+        oid = ob.get("id")
+        if oid is not None:
+            counts[oid] = counts.get(oid, 0) + 1
+    return sorted(oid for oid, n in counts.items() if n > 1)
+
+
 def evaluate(root, now=None, warn_days=7):
     """Evaluate the vault at ``root`` and return the standing rows, sorted by id."""
     root = Path(root)
     if now is None:
         now = datetime.now(timezone.utc)
     obligations = load_obligations(root)
+    dupes = _duplicate_ids(obligations)
+    if dupes:
+        quoted = ", ".join(f"'{d}'" for d in dupes)
+        raise ValueError(
+            f"duplicate obligation id(s): {quoted} — run core/validate.py on the "
+            f"vault to identify the conflicting files and remove the duplicate"
+        )
     records = load_records(root)
     pubs = publish_index(load_receipts(root))
     rows = [evaluate_obligation(o, records, pubs, now, warn_days) for o in obligations]
@@ -537,7 +554,11 @@ def main(argv=None):
         if now is None:
             parser.error(f"could not parse --now value {args.now!r}")
 
-    rows = evaluate(args.root, now=now, warn_days=args.warn_days)
+    try:
+        rows = evaluate(args.root, now=now, warn_days=args.warn_days)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
     if _schema_validate is not None:
         errors = _schema_validate(_schema("standing"), rows, _schema("standing"))

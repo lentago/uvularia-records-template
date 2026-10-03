@@ -13,14 +13,14 @@ box. Both are Python 3.12, **standard library only** — no `pip install`, ever.
 
 ## validate.py — check a vault before publishing
 
-**What it does.** You point it at a vault root and it runs seven checks; on any
+**What it does.** You point it at a vault root and it runs eight checks; on any
 problem it prints a plain-English line naming the file and what to change, and
 exits non-zero so the pull request stays red. **Why bother:** a bad field, a
-broken link, a resident's phone number, or a quietly deleted record is caught on
-the PR, before it can reach the public site or the Ask box. **How long:** well
-under a second on a few hundred records. **How you know it worked:** it prints
-`All enabled checks passed.` and exits `0`; otherwise it lists each problem and
-exits `1`.
+broken link, a resident's phone number, a quietly deleted record, or a duplicate
+obligation id is caught on the PR, before it can reach the public site or the Ask
+box. **How long:** well under a second on a few hundred records. **How you know it
+worked:** it prints `All enabled checks passed.` and exits `0`; otherwise it lists
+each problem and exits `1`.
 
 Run it yourself from the vault root:
 
@@ -38,7 +38,7 @@ The vault layout it expects (CLAUDE.md § Artifacts): `intake/`, `records/<type>
 `library/files/` with a `library/manifest.json`, `obligations/`, `receipts/`, and
 `index.md`.
 
-### The seven checks
+### The eight checks
 
 | # | Check | What it enforces |
 |---|---|---|
@@ -49,6 +49,7 @@ The vault layout it expects (CLAUDE.md § Artifacts): `intake/`, `records/<type>
 | 5 | `privacy` | A denylist (names, unit numbers) plus email and phone patterns, scanned in record bodies and any text under `library/text/`. A match fails the build and prints the file and line — **never the matched value in full**. |
 | 6 | `no_delete` | No record that exists in the base git ref (default `origin/main`) has been removed from the tree. Retract or supersede instead; never delete. |
 | 7 | `intake_isolation` | Nothing in `records/` or `index.md` links into `intake/`, which is never published. |
+| 8 | `unique_obligation_ids` | Every obligation id is unique across all files under `obligations/` (JSON and YAML). The message names both conflicting files so the duplicate is easy to find and remove. |
 
 These are the invariants from `CLAUDE.md` made mechanical. They are checks, not
 advice: the PR cannot merge until they pass, and none of them is weakened to make
@@ -68,6 +69,7 @@ links = true
 privacy = true
 no_delete = true
 intake_isolation = true
+unique_obligation_ids = true
 
 [privacy]
 denylist = ["Jane Q. Resident", "Unit 4B"]   # literal strings, case-insensitive
