@@ -1,0 +1,99 @@
+# ============================================================================
+# publish — on merge to main, publish the corpus, standing, feed, and receipt
+# ============================================================================
+# Builds the four published artifacts with the vendored core/bundle.py, appends
+# them to the `published` branch (served by GitHub Pages), and attaches a signed
+# build-provenance attestation over the corpus. Stdlib only for the build.
+#
+# The `published` branch is append-only: each run adds a new corpus-<digest>.json
+# and a new receipt, and overwrites standing.json / feed.xml / corpus-latest.json.
+# It is never force-pushed. Receipts accumulate there so the next publish can
+# date every record by the server-side time it first went public.
+#
+# Server-side time (invariant 4): PUBLISHED_AT is this run's own clock, taken
+# once at the top. No author commit time is ever used as "posted at".
+# ============================================================================
+
+name: publish
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write       # push to the published branch
+  id-token: write       # OIDC for the attestation
+  attestations: write   # record the attestation
+
+concurrency:
+  group: publish        # one publish at a time, so the append never races
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Stamp the server-side publish time
+        run: |
+          echo "PUBLISHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          echo "RUN_URL=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >> "$GITHUB_ENV"
+
+      - name: Check out the published branch (create it empty on the first run)
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --no-tags origin
+          if git ls-remote --exit-code --heads origin published >/dev/null 2>&1; then
+            git worktree add _pub published
+          else
+            git worktree add --detach _pub HEAD
+            git -C _pub switch --orphan published
+            find _pub -mindepth 1 -maxdepth 1 -not -name .git -exec rm -rf {} +
+          fi
+
+      - name: Build the published artifacts
+        run: |
+          set -euo pipefail
+          python3 core/bundle.py build \
+            --vault . \
+            --out _out \
+            --published-at "$PUBLISHED_AT" \
+            --run-url "$RUN_URL" \
+            --commit "$GITHUB_SHA" \
+            --prior-receipts _pub/receipts \
+            --prev-bundle _pub/corpus-latest.json
+
+      - name: Lay the artifacts onto the published branch (append, never overwrite a receipt)
+        run: |
+          set -euo pipefail
+          mkdir -p _pub/receipts
+          cp _out/corpus-*.json _pub/                     # new, digest-named; accumulates
+          cp _out/corpus-*.json _pub/corpus-latest.json   # pointer to the newest bundle
+          cp _out/standing.json _pub/standing.json        # overwritten each publish
+          cp _out/feed.xml      _pub/feed.xml             # overwritten each publish
+          cp _out/receipts/*.md _pub/receipts/            # new receipt; never replaces an old one
+
+      - name: Commit and push the published branch
+        run: |
+          set -euo pipefail
+          git -C _pub add -A
+          if git -C _pub diff --cached --quiet; then
+            echo "Nothing changed since the last publish."
+            exit 0
+          fi
+          git -C _pub commit -m "Publish ${PUBLISHED_AT} (${GITHUB_SHA::7})"
+          git -C _pub push origin published
+
+      - name: Attest the corpus bundle's provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: _out/corpus-*.json

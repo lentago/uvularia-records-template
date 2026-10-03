@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lentago.github.io/uvularia/core/schema/obligation.schema.json",
+  "title": "Obligation",
+  "description": "A rule about records: which record type satisfies it, and exactly one of four timing kinds. Encodes posting mechanics, never legal interpretation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "pack", "record_type", "subjects", "source", "disclaimer_ref"],
+  "properties": {
+    "id": { "$ref": "#/$defs/slug" },
+    "title": { "type": "string", "minLength": 1 },
+    "pack": { "$ref": "#/$defs/slug" },
+    "record_type": { "enum": ["minutes", "notice", "agenda", "policy", "bylaw", "filing", "report", "announcement", "faq"] },
+    "subjects": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "source": { "type": "string", "minLength": 1 },
+    "disclaimer_ref": { "type": "string", "minLength": 1 },
+    "lead": { "$ref": "#/$defs/lead" },
+    "lag": { "$ref": "#/$defs/lag" },
+    "cadence": { "$ref": "#/$defs/cadence" },
+    "one_off": { "$ref": "#/$defs/one_off" }
+  },
+  "oneOf": [
+    { "required": ["lead"] },
+    { "required": ["lag"] },
+    { "required": ["cadence"] },
+    { "required": ["one_off"] }
+  ],
+  "$defs": {
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "iso_date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "lead": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Posted at least this long BEFORE the event the record is about.",
+      "properties": {
+        "hours": { "type": "integer", "minimum": 0 },
+        "days": { "type": "integer", "minimum": 0 }
+      },
+      "oneOf": [
+        { "required": ["hours"] },
+        { "required": ["days"] }
+      ]
+    },
+    "lag": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Posted no later than this many days AFTER the event the record is about.",
+      "required": ["days"],
+      "properties": {
+        "days": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "cadence": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A fresh record_type at least every N months, measured from the last approved one.",
+      "required": ["months"],
+      "properties": {
+        "months": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "one_off": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A single fixed due date.",
+      "required": ["due"],
+      "properties": {
+        "due": { "$ref": "#/$defs/iso_date" }
+      }
+    }
+  }
+}

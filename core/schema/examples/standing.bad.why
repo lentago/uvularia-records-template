@@ -1,0 +1,1 @@
+"state" is "ok" (not green|amber|red|no-data) and the required "gap" field is missing — a row may not silently omit its gap.

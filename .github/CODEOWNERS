@@ -1,0 +1,12 @@
+# Who must approve a change to the vault. Replace the placeholder below with a
+# GitHub team or usernames in YOUR org, then turn on "Require review from Code
+# Owners" in branch protection for main (Settings → Branches). Until you do,
+# anyone with write access can merge a record unreviewed.
+#
+# A team:      *  @your-org/records-reviewers
+# Individuals: *  @board-secretary @tech-director
+*  @REPLACE-WITH-YOUR-REVIEWER
+
+# The checks that gate a PR live here; changing them is a bigger decision than
+# adding a record, so you may want a tighter reviewer on the workflows.
+/.github/  @REPLACE-WITH-YOUR-REVIEWER

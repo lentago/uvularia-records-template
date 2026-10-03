@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lentago.github.io/uvularia/core/schema/standing.schema.json",
+  "title": "Standing",
+  "description": "One row per obligation, read by the public board and by the Ask box. A missing or null value is reported as 'no-data', never a fake green.",
+  "type": "array",
+  "items": { "$ref": "#/$defs/row" },
+  "$defs": {
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "state", "satisfied_by", "deadline", "published_at", "gap"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "state": { "enum": ["green", "amber", "red", "no-data"] },
+        "satisfied_by": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "deadline": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "published_at": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2})?(Z|[+-][0-9]{2}:[0-9]{2})?)?$"
+        },
+        "gap": { "type": ["integer", "null"] }
+      }
+    }
+  }
+}

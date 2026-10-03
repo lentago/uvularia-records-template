@@ -1,0 +1,1 @@
+status is "approved" but neither "source" nor "approved" is present — the approved-requires-provenance rule fails.

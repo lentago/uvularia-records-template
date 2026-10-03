@@ -1,0 +1,21 @@
+{
+  "id": "2026-09-16-board-minutes",
+  "title": "Board meeting minutes, 2026-09-16",
+  "type": "minutes",
+  "status": "approved",
+  "visibility": "public",
+  "effective": "2026-09-16",
+  "approved": "2026-10-01",
+  "source": {
+    "kind": "pdf",
+    "file": "library/files/minutes/2026-09-16-board-minutes.pdf",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "certainty": "verified",
+  "supersedes": "2026-06-18-board-minutes",
+  "subjects": ["budget", "parking", "annual-meeting"],
+  "tags": ["board", "2026"],
+  "corrections": [
+    { "date": "2026-10-02", "note": "Treasurer's figure corrected from $12,400 to $12,040; source p.3." }
+  ]
+}

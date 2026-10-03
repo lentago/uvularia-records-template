@@ -1,0 +1,10 @@
+{
+  "id": "open-meeting-notice-48h",
+  "title": "Meeting notice posted at least 48 hours ahead",
+  "pack": "ma",
+  "record_type": "notice",
+  "subjects": ["meetings", "annual-meeting"],
+  "source": "M.G.L. c. 30A, s. 20(b) — notice posted at least 48 hours before the meeting, excluding weekends and legal holidays.",
+  "disclaimer_ref": "policy.yaml#not-legal-advice",
+  "lead": { "hours": 48 }
+}

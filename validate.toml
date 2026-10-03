@@ -1,0 +1,28 @@
+# How this vault is checked on every pull request. All seven checks default to
+# on; this file is here so you can see them and tune the two that take settings.
+# Full reference: core/README.md. Do not switch a check off to make a red PR
+# green — fix the record the check names instead.
+
+[checks]
+schema = true            # every record's frontmatter matches core/schema/record.schema.json
+approved_source = true   # an approved record has a source file under library/ with a matching sha256
+visibility = true        # every record is visibility: public (this repo is public)
+links = true             # relative Markdown links in records/ and index.md resolve
+privacy = true           # the denylist below, plus email/phone patterns, are not in the text
+no_delete = true         # a published record is retracted or superseded, never deleted
+intake_isolation = true  # nothing in records/ or index.md links into intake/
+
+[privacy]
+# Literal strings to catch if they ever appear in a record or in library/text/.
+# These are case-insensitive. KEEP REAL NAMES OUT OF THIS PUBLIC FILE — put a
+# resident's name or unit number in the git-ignored file below instead; the
+# check reads it but it is never committed.
+denylist = []
+denylist_file = "privacy-denylist.txt"
+emails = true
+phones = true
+
+[no_delete]
+# The branch a PR is compared against to catch a deleted record. The publish
+# workflow fetches this ref so the guard is live in CI.
+base_ref = "origin/main"

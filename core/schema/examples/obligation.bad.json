@@ -1,0 +1,11 @@
+{
+  "id": "open-meeting-notice-48h",
+  "title": "Meeting notice posted at least 48 hours ahead",
+  "pack": "ma",
+  "record_type": "notice",
+  "subjects": ["meetings"],
+  "source": "M.G.L. c. 30A, s. 20(b).",
+  "disclaimer_ref": "policy.yaml#not-legal-advice",
+  "lead": { "hours": 48 },
+  "cadence": { "months": 12 }
+}

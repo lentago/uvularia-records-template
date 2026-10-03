@@ -1,0 +1,111 @@
+# ============================================================================
+# validate — gate every pull request on the vault's own rules
+# ============================================================================
+# Runs the vendored core/validate.py and core/evaluate.py against the whole tree
+# on every pull request, posts the standing board as a PR comment, and fails the
+# check on any validation error. Stdlib only — no pip install.
+#
+# Deliberately NOT path-filtered. If this is a required status check, a run that
+# never triggers is held "Expected" forever and deadlocks every PR that did not
+# touch the filtered paths. It is cheap and finishes in seconds.
+# ============================================================================
+
+name: validate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write   # to post the standing board as a comment
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the no_delete check needs the base ref present
+
+      - name: Make the base ref available to the no_delete check
+        run: git fetch --no-tags origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" || true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Evaluate obligations into standing.json
+        continue-on-error: true   # a failure here must not hide the validator's result
+        run: python3 core/evaluate.py . --out standing.json
+
+      - name: Validate the vault
+        id: validate
+        continue-on-error: true   # captured below so the comment still posts; the job fails at the end
+        run: |
+          set -o pipefail
+          python3 core/validate.py . --base-ref "origin/${{ github.base_ref }}" 2>&1 | tee validate.txt
+
+      - name: Build the PR comment
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          outcome = "${{ steps.validate.outcome }}"
+          lines = ["<!-- uvularia-validate -->", "## Vault checks", ""]
+          if outcome == "success":
+              lines.append("✅ **All enabled checks passed.** Safe to merge once reviewed.")
+          else:
+              lines.append("❌ **Validation failed.** Nothing publishes until this is green. See the detail below.")
+          try:
+              rows = json.loads(pathlib.Path("standing.json").read_text())
+          except Exception:
+              rows = None
+          lines += ["", "### Is it posted?", ""]
+          if not rows:
+              lines.append("_No standing to show (the evaluator did not produce one)._")
+          else:
+              mark = {"green": "🟢", "amber": "🟡", "red": "🔴", "no-data": "⚪"}
+              lines += ["| | Obligation | State | Satisfied by | Deadline | Gap (days) |",
+                        "|---|---|---|---|---|---|"]
+              for r in rows:
+                  lines.append("| {m} | `{id}` | {state} | {by} | {dl} | {gap} |".format(
+                      m=mark.get(r["state"], ""), id=r["id"], state=r["state"],
+                      by=(f'`{r["satisfied_by"]}`' if r["satisfied_by"] else "—"),
+                      dl=(r["deadline"] or "—"),
+                      gap=("—" if r["gap"] is None else r["gap"])))
+              lines.append("")
+              lines.append("⚪ no-data means there is nothing to show — it is **not** a pass.")
+          detail = pathlib.Path("validate.txt").read_text() if pathlib.Path("validate.txt").exists() else ""
+          if detail.strip():
+              lines += ["", "<details><summary>validate.py output</summary>", "",
+                        "```", detail.strip(), "```", "</details>"]
+          pathlib.Path("comment.md").write_text("\n".join(lines) + "\n")
+          print("\n".join(lines))
+          PY
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post (or update) the standing comment
+        if: always()
+        continue-on-error: true   # read-only token on a fork PR cannot comment; the step summary still carries it
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('comment.md', 'utf8');
+            const marker = '<!-- uvularia-validate -->';
+            const {owner, repo} = context.repo;
+            const issue_number = context.issue.number;
+            const {data: comments} = await github.rest.issues.listComments({owner, repo, issue_number});
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({owner, repo, comment_id: existing.id, body});
+            } else {
+              await github.rest.issues.createComment({owner, repo, issue_number, body});
+            }
+
+      - name: Fail if validation failed
+        if: steps.validate.outcome == 'failure'
+        run: |
+          echo "validate.py reported problems; see the PR comment and the log above."
+          exit 1

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lentago.github.io/uvularia/core/schema/receipt.schema.json",
+  "title": "Receipt",
+  "description": "One append-only record per publish: what changed, when the Actions run published it (server-side time), and what the obligations stood at.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["digest", "published_at", "run_url", "commit", "records", "standing"],
+  "properties": {
+    "digest": { "$ref": "#/$defs/sha256" },
+    "published_at": { "$ref": "#/$defs/iso_datetime" },
+    "run_url": { "type": "string", "pattern": "^https://[^ ]+$" },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+    "records": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["added", "changed", "retracted"],
+      "properties": {
+        "added": { "$ref": "#/$defs/id_list" },
+        "changed": { "$ref": "#/$defs/id_list" },
+        "retracted": { "$ref": "#/$defs/id_list" }
+      }
+    },
+    "standing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["green", "amber", "red", "no_data"],
+      "properties": {
+        "green": { "type": "integer", "minimum": 0 },
+        "amber": { "type": "integer", "minimum": 0 },
+        "red": { "type": "integer", "minimum": 0 },
+        "no_data": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "iso_datetime": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2})?(Z|[+-][0-9]{2}:[0-9]{2})?)?$"
+    },
+    "id_list": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9]+(?:-[a-z0-9]+)*$"
+      }
+    }
+  }
+}

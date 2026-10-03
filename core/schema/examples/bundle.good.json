@@ -1,0 +1,16 @@
+{
+  "digest": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "published_at": "2026-10-01T14:03:11Z",
+  "records": [
+    {
+      "doc_id": "2026-09-16-board-minutes",
+      "title": "Board meeting minutes, 2026-09-16",
+      "tags": ["board", "2026"],
+      "volatility": "stable",
+      "body": "The board met on 2026-09-16. Present: ... Approved the 2027 budget.",
+      "path": "records/minutes/2026-09-16-board-minutes.md",
+      "certainty": "verified",
+      "archived": false
+    }
+  ]
+}

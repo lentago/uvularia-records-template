@@ -1,0 +1,13 @@
+# Imported from the uvularia Massachusetts pack: obligations/packs/ma/ma-oml-minutes-timely.json
+# Posting mechanics only, not legal advice. The 30-day lag is an operator default,
+# not a statutory number — the Open Meeting Law says "timely" without fixing days.
+# Delete this file if your organization is not subject to the MA Open Meeting Law.
+id: ma-oml-minutes-timely
+title: "Meeting minutes made available in a timely manner"
+pack: ma
+record_type: minutes
+subjects: [meetings, minutes]
+source: "M.G.L. c. 30A, § 22(a) — minutes shall be created and approved in a timely manner. The statute does not fix a number of days; the lag encoded here is an operator-configurable default."
+disclaimer_ref: policy.disclaimer
+lag:
+  days: 30

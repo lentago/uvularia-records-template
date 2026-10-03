@@ -1,0 +1,11 @@
+# Real resident names and unit numbers go here, named by validate.toml's
+# denylist_file. The privacy check reads it; git never commits it, so sensitive
+# values stay out of this public repo.
+privacy-denylist.txt
+
+# Local build output from running the publish step by hand.
+_publish/
+_published/
+
+.DS_Store
+__pycache__/

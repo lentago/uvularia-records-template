@@ -1,0 +1,11 @@
+# The uvularia core pinned into this vault.
+#
+# The files under core/ are vendored — a copy of lentago/uvularia's core/, not
+# hand-edited here. This file is the pin: the ref they were copied from, and the
+# only place you change to take a newer core. `scripts/sync-core.sh` reads it.
+#
+# Pin to a release tag once uvularia cuts one (e.g. v0.1.0); until then this
+# tracks main. Do not edit core/*.py by hand — change it upstream, bump this
+# pin, and re-run the sync, so your copy stays one `git diff` from upstream.
+repo = lentago/uvularia
+ref = main
