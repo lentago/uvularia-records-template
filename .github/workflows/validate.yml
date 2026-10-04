@@ -19,6 +19,8 @@ on:
 permissions:
   contents: read
   pull-requests: write   # to post the standing board as a comment
+  checks: read           # telemetry only: which open pull requests are green
+  statuses: read         # (the same, for checks that report as commit statuses)
 
 jobs:
   validate:
@@ -105,10 +107,24 @@ jobs:
             }
 
       # --- Telemetry (optional; see README "Watch the pipeline") ---------------
-      # Describes the review (the validator's outcome and the standing summary)
-      # and pushes it to your own Grafana Cloud Loki when LOKI_PUSH_URL is set.
-      # Unset, it prints one "telemetry not configured" line. Neither step can
-      # fail the check: a Loki outage is a warning, never a red pull request.
+      # Describes the review (the validator's outcome, the standing summary, and
+      # how many green pull requests are waiting on a person and since when) and
+      # pushes it to your own Grafana Cloud Loki when LOKI_PUSH_URL is set.
+      # Unset, it prints one "telemetry not configured" line and asks GitHub
+      # nothing. No step here can fail the check: a Loki outage is a warning,
+      # never a red pull request. This run's own check is still running while it
+      # counts, so it says how the check will end (--this-run-conclusion).
+      - name: Telemetry — count pull requests waiting on a reviewer
+        if: always() && vars.LOKI_PUSH_URL != ''
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          THIS_RUN_CONCLUSION: ${{ steps.validate.outcome == 'success' && job.status == 'success' && 'success' || 'failure' }}
+        run: |
+          python3 scripts/pipeline_snapshot.py reviewed --out "$RUNNER_TEMP/reviewed-snapshot.json" \
+            --this-run "$GITHUB_RUN_ID" --this-run-conclusion "$THIS_RUN_CONCLUSION"
+
       - name: Telemetry — describe this review
         id: telemetry
         if: always()
@@ -122,7 +138,8 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           python3 scripts/telemetry.py reviewed --standing standing.json \
-            --validate "$VALIDATE_OUTCOME" --pr "$PR_NUMBER" --job-status "$JOB_STATUS"
+            --validate "$VALIDATE_OUTCOME" --pr "$PR_NUMBER" --job-status "$JOB_STATUS" \
+            --snapshot "$RUNNER_TEMP/reviewed-snapshot.json"
 
       - name: Telemetry — push the reviewed event
         if: always() && steps.telemetry.outputs.enabled == 'true'

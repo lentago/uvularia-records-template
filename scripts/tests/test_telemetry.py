@@ -41,7 +41,10 @@ standing:
 """
 
 
-def run(argv, env):
+NOW = 1_791_115_200   # 2026-10-04T12:00:00Z
+
+
+def run(argv, env, now=NOW):
     """Run main(); return (rc, printed text, outputs dict)."""
     tmp = Path(tempfile.mkdtemp())
     try:
@@ -49,7 +52,7 @@ def run(argv, env):
         out_file.write_text("")
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = telemetry.main(argv, env={**env, "GITHUB_OUTPUT": str(out_file)})
+            rc = telemetry.main(argv, env={**env, "GITHUB_OUTPUT": str(out_file)}, now=now)
         outputs = dict(line.split("=", 1) for line in out_file.read_text().splitlines())
         return rc, buf.getvalue(), outputs
     finally:
@@ -105,6 +108,26 @@ class Payloads(unittest.TestCase):
         self.assertEqual(p["standing"], {"green": 1, "amber": 0, "red": 1, "no_data": 1, "total": 3})
         self.assertEqual(p["receipt"], f"2026-10-04T120000Z-{digest}.md")
         self.assertEqual((p["job_status"], p["run_id"]), ("success", "77"))
+        # `at` is the publish's own server-side time, not this run's clock.
+        self.assertEqual(p["at"], NOW)
+        self.assertNotIn("announcement_latency_s", p)
+
+    def test_published_at_is_the_receipt_time_not_the_clock(self):
+        digest = "b" * 64
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / f"corpus-{digest}.json").write_text(json.dumps(
+                {"digest": digest, "published_at": "2026-10-04T11:00:00Z", "records": []}))
+            rc, _, o = run(["published", "--out-dir", tmp], CONFIGURED, now=NOW + 999)
+        self.assertEqual(json.loads(o["payload"])["at"], NOW - 3600)
+
+    def test_published_carries_announcement_latency_from_the_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snap = Path(tmp) / "snap.json"
+            snap.write_text(json.dumps({"announcement_latency_s": 312, "open": 4}))
+            p = self.payload(["published", "--out-dir", tmp, "--snapshot", str(snap)])
+        self.assertEqual(p["announcement_latency_s"], 312)
+        self.assertNotIn("open", p, "only the stage's own snapshot fields are taken")
 
     def test_failed_publish_reports_no_data_not_zeros(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -120,6 +143,60 @@ class Payloads(unittest.TestCase):
             p = self.payload(["reviewed", "--standing", str(path), "--validate", "failure", "--pr", "9"])
         self.assertEqual((p["pr"], p["validate"]), (9, "failure"))
         self.assertEqual(p["standing"]["amber"], 1)
+        self.assertEqual(p["at"], NOW)
+        self.assertNotIn("awaiting", p, "no snapshot, no count: the pane reads no data")
+
+    def test_reviewed_with_its_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snap = Path(tmp) / "snap.json"
+            snap.write_text(json.dumps({"awaiting": 2, "oldest_green_at": NOW - 7200}))
+            p = self.payload(["reviewed", "--standing", str(snap), "--pr", "9",
+                              "--snapshot", str(snap)])
+        self.assertEqual((p["awaiting"], p["oldest_green_at"]), (2, NOW - 7200))
+
+    def test_intake_with_its_snapshot_keeps_its_outcome(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snap = Path(tmp) / "snap.json"
+            snap.write_text(json.dumps({"open": 3, "oldest_opened_at": NOW - 86400}))
+            p = self.payload(["intake", "--issue", "42", "--is-form", "true", "--scaffold",
+                              "success", "--branch-exists", "false", "--pr-result", "opened",
+                              "--pr-number", "43", "--snapshot", str(snap)])
+        self.assertEqual((p["outcome"], p["open"], p["oldest_opened_at"]),
+                         ("pr_opened", 3, NOW - 86400))
+        self.assertEqual(p["at"], NOW)
+
+    def test_snapshot_values_must_be_whole_non_negative_numbers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snap = Path(tmp) / "snap.json"
+            snap.write_text(json.dumps({"open": "3", "oldest_opened_at": -1}))
+            p = self.payload(["intake", "--issue", "1", "--is-form", "true", "--scaffold",
+                              "failure", "--snapshot", str(snap)])
+            self.assertNotIn("open", p)
+            self.assertNotIn("oldest_opened_at", p)
+            snap.write_text(json.dumps({"open": True}))
+            self.assertEqual(telemetry.snapshot_fields("intake", snap), {})
+            self.assertEqual(telemetry.snapshot_fields("intake", Path(tmp) / "missing.json"), {})
+
+    def test_scheduled_snapshot_is_the_counts_and_nothing_else(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snap = Path(tmp) / "snap.json"
+            snap.write_text(json.dumps({"open": 0, "oldest_opened_at": 0}))
+            p = self.payload(["intake", "--scheduled", "--snapshot", str(snap)])
+            self.assertEqual({k: p[k] for k in ("at", "open", "oldest_opened_at")},
+                             {"at": NOW, "open": 0, "oldest_opened_at": 0})
+            self.assertFalse({"issue", "outcome", "pr"} & set(p))
+            snap.write_text(json.dumps({"awaiting": 1, "oldest_green_at": NOW - 60}))
+            p = self.payload(["reviewed", "--scheduled", "--snapshot", str(snap)])
+            self.assertEqual((p["awaiting"], p["oldest_green_at"]), (1, NOW - 60))
+            self.assertFalse({"pr", "validate", "standing"} & set(p))
+
+    def test_a_scheduled_run_with_no_counts_sends_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snap = Path(tmp) / "snap.json"
+            snap.write_text("{}")
+            for stage in ("intake", "reviewed"):
+                rc, _, out = run([stage, "--scheduled", "--snapshot", str(snap)], CONFIGURED)
+                self.assertEqual((rc, out["enabled"]), (0, "false"))
 
     def test_intake_outcomes(self):
         base = ["intake", "--issue", "42", "--is-form", "true"]
@@ -144,6 +221,21 @@ class Payloads(unittest.TestCase):
             p = self.payload(["evals", "--summary", str(s), "--corpus", "present"])
         self.assertEqual((p["total"], p["passed"], p["failed"]), (10, 9, 1))
         self.assertEqual(self.payload(["rules_released", "--tag", "rules-v3"])["tag"], "rules-v3")
+
+    def test_every_stage_carries_at_as_whole_seconds(self):
+        for argv in (["evals"], ["rules_released", "--tag", "rules-v3"],
+                     ["reviewed", "--pr", "1"],
+                     ["intake", "--issue", "1", "--is-form", "true", "--scaffold", "failure"]):
+            with self.subTest(stage=argv[0]):
+                rc, _, out = run(argv, CONFIGURED, now=NOW + 0.75)
+                at = json.loads(out["payload"])["at"]
+                self.assertEqual((at, type(at)), (NOW, int))
+
+    def test_epoch_seconds(self):
+        self.assertEqual(telemetry.epoch_seconds("2026-10-04T12:00:00Z"), NOW)
+        self.assertEqual(telemetry.epoch_seconds("2026-10-04T12:00:00+00:00"), NOW)
+        self.assertIsNone(telemetry.epoch_seconds("not a time"))
+        self.assertIsNone(telemetry.epoch_seconds(None))
 
     def test_cluster_slug(self):
         self.assertEqual(telemetry.cluster_slug("", "Example_Org"), "example_org")

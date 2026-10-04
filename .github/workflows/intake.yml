@@ -267,10 +267,19 @@ jobs:
 
       # --- Telemetry (optional; see README "Watch the pipeline") ---------------
       # Describes this intake (the issue number and what came of it: a pull
-      # request, a pushed branch, or a form that could not be read) and pushes it
-      # to your own Grafana Cloud Loki when LOKI_PUSH_URL is set. An issue that is
-      # not the "Add a record" form is not an event. Unset, it prints one
-      # "telemetry not configured" line. Neither step can fail the run.
+      # request, a pushed branch, or a form that could not be read, plus how many
+      # intake items are open and since when) and pushes it to your own Grafana
+      # Cloud Loki when LOKI_PUSH_URL is set. An issue that is not the "Add a
+      # record" form is not an event. Unset, it prints one "telemetry not
+      # configured" line and asks GitHub nothing. No step here can fail the run.
+      - name: Telemetry — count open intake
+        if: always() && vars.LOKI_PUSH_URL != '' && steps.detect.outputs.is_form == 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/pipeline_snapshot.py intake --out "$RUNNER_TEMP/intake-snapshot.json"
+
       - name: Telemetry — describe this intake
         id: telemetry
         if: always()
@@ -289,7 +298,8 @@ jobs:
         run: |
           python3 scripts/telemetry.py intake --issue "$ISSUE" --is-form "$IS_FORM" \
             --scaffold "$SCAFFOLD" --branch-exists "$BRANCH_EXISTS" \
-            --pr-result "$PR_RESULT" --pr-number "$PR_NUMBER" --job-status "$JOB_STATUS"
+            --pr-result "$PR_RESULT" --pr-number "$PR_NUMBER" --job-status "$JOB_STATUS" \
+            --snapshot "$RUNNER_TEMP/intake-snapshot.json"
 
       - name: Telemetry — push the intake event
         if: always() && steps.telemetry.outputs.enabled == 'true'

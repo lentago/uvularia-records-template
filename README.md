@@ -195,9 +195,23 @@ step. What goes out:
 
 | Workflow | Event (`stage`) | What it carries |
 |---|---|---|
-| intake | `intake` | the issue number and what came of it: a pull request, a pushed branch, or a form that could not be read |
-| validate | `reviewed` | the pull-request number, whether validation passed, and the board's green/amber/red counts |
-| publish | `published` | the corpus digest, record counts, the board's counts, and the receipt's file name |
+| intake | `intake` | the issue number and what came of it: a pull request, a pushed branch, or a form that could not be read; plus `open` (intake items still open) and `oldest_opened_at` (when the oldest was opened, `0` when none) |
+| validate | `reviewed` | the pull-request number, whether validation passed, and the board's green/amber/red counts; plus `awaiting` (pull requests whose checks are all green, waiting on a person) and `oldest_green_at` (when the longest-waiting one went green, `0` when none) |
+| publish | `published` | the corpus digest, record counts, the board's counts, and the receipt's file name; plus `announcement_latency_s`, the longest time from an announcement's pull request merging to this publish (only when an announcement went live) |
+| daily-snapshot | `intake`, `reviewed` | once a day, just the counts: `open` and `oldest_opened_at`, `awaiting` and `oldest_green_at` |
+
+Every event also carries `at`, the time it is about in Unix seconds: the
+publish time for a publish (the same server-side time as the receipt), the
+run's own time for everything else. An "intake item" is an open "Add a record"
+issue, its `intake/<N>` pull request, or both; the two together count once.
+A pull request with no checks at all is not counted as green.
+
+The counts come from [`scripts/pipeline_snapshot.py`](scripts/pipeline_snapshot.py),
+which asks GitHub with the run's own token. It runs only when `LOKI_PUSH_URL` is
+set. If GitHub won't answer, the count is left out and your dashboard reads
+"no data" for it, never a made-up zero. The
+[`daily-snapshot`](.github/workflows/daily-snapshot.yml) workflow exists so the
+counts stay current on a week with no new issues or pull requests.
 
 No names, emails, or document text are sent. An issue that isn't the "Add a
 record" form sends nothing.
@@ -205,6 +219,11 @@ record" form sends nothing.
 Sending is **best-effort**. If Grafana is down or the token is wrong, the step
 shows a warning and the publish, review, or intake still finishes green. Nothing
 you publish waits on it.
+
+> **Heads up:** GitHub starts scheduled workflows a few minutes late when it is
+> busy, and pauses them in a public repository with no activity for 60 days.
+> If the daily counts stop arriving, check **Actions → daily-snapshot** and
+> click **Enable workflow** if GitHub has switched it off.
 
 **How you know it worked:** the next run's log shows
 `loki-event: pushed log_source=uvularia_published …`. In Grafana, open **Explore**,
