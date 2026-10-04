@@ -1,12 +1,14 @@
 # ============================================================================
 # publish — on merge to main, publish the corpus, standing, feed, and receipt
 # ============================================================================
-# Builds the four published artifacts with the vendored core/bundle.py, appends
+# Builds the four published artifacts with the vendored core/bundle.py, writes
+# the public board page (index.html) from them with scripts/board.py, appends
 # them to the `published` branch (served by GitHub Pages), and attaches a signed
 # build-provenance attestation over the corpus. Stdlib only for the build.
 #
 # The `published` branch is append-only: each run adds a new corpus-<digest>.json
-# and a new receipt, and overwrites standing.json / feed.xml / corpus-latest.json.
+# and a new receipt, and overwrites standing.json / feed.xml / corpus-latest.json
+# / index.html.
 # It is never force-pushed. Receipts accumulate there so the next publish can
 # date every record by the server-side time it first went public.
 #
@@ -73,6 +75,9 @@ jobs:
             --prior-receipts _pub/receipts \
             --prev-bundle _pub/corpus-latest.json
 
+      - name: Write the public board page
+        run: python3 scripts/board.py --vault . --artifacts _out --out _out/index.html
+
       - name: Lay the artifacts onto the published branch (append, never overwrite a receipt)
         run: |
           set -euo pipefail
@@ -81,6 +86,7 @@ jobs:
           cp _out/corpus-*.json _pub/corpus-latest.json   # pointer to the newest bundle
           cp _out/standing.json _pub/standing.json        # overwritten each publish
           cp _out/feed.xml      _pub/feed.xml             # overwritten each publish
+          cp _out/index.html    _pub/index.html           # the public board; overwritten each publish
           cp -n _out/receipts/*.md _pub/receipts/         # new receipt; never replaces an old one (names carry the publish instant; -n is the second guard)
 
       - name: Commit and push the published branch
