@@ -345,6 +345,7 @@ appends to the `published` branch:
 | `index.html` | the public board page, rewritten each publish from `standing.json` (see section 2) |
 | `standing.json` | the live board data, one row per obligation — [schema](core/schema/standing.schema.json) |
 | `feed.xml` | an Atom feed of your announcements |
+| `.nojekyll` | an empty marker that tells GitHub Pages to serve the branch exactly as written, with no Jekyll build; without it Pages rewrites the `.md` receipts to `.html` |
 | `receipts/<YYYY-MM-DDTHHMMSSZ>-<digest>.md` | the stamped, append-only receipt — [schema](core/schema/receipt.schema.json) |
 | a provenance attestation | a signed statement that this corpus came from this commit |
 
