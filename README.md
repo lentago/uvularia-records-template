@@ -213,6 +213,66 @@ up within a few seconds.
 
 ---
 
+## 5. Get told when something needs you
+
+**What you are about to do:** turn on a check that runs every 30 minutes and opens
+a GitHub Issue when something needs a person. It closes the issue on its own when
+the problem clears.
+
+**Why bother:** the board shows the world what is posted, but nobody watches a
+board all day. Issues are free and already where you work, and GitHub emails you
+about each new one. **This works with no Grafana at all.** Grafana alerts are an
+optional second channel, not a requirement.
+
+**How long:** nothing to do for the board check. It is on as soon as this
+repository exists. About two minutes more if you have an Ask box.
+
+The [`watch`](.github/workflows/watch.yml) workflow runs
+[`scripts/watch.py`](scripts/watch.py). It reads the `standing.json` and
+`corpus-latest.json` you published and opens **one issue per condition**:
+
+| Condition | Opens when | Closes when |
+|---|---|---|
+| an obligation is amber or red | it turns amber or red on the board (one issue per obligation; if it goes from amber to red, the same issue is updated and gets a comment) | it is green again |
+| the Ask box serves an old copy | the box is still answering from an older corpus more than 30 minutes after a publish | the box serves the published corpus |
+| the daily cap is past 80 % | today's questions reach 80 % of the cap | today's use is under 80 % again, normally at midnight UTC |
+
+Each issue says in plain words what happened and what to do. Every issue has the
+label `uvularia-watch` and two hidden lines at the bottom. Leave those lines alone:
+they are how the next run finds the issue again, so the same problem is never
+opened twice. The workflow uses the built-in token and can only read this
+repository and write issues.
+
+To turn on the two Ask box checks, open **Settings → Secrets and variables →
+Actions → Variables** and add:
+
+- `ASK_HEALTH_URL`: your Ask function's URL with `/health` on the end, for example
+  `https://abc123.lambda-url.us-east-1.on.aws/health`. Without it, the run prints
+  one notice (`ASK_HEALTH_URL is not set`), skips the two Ask checks, and still
+  passes.
+- `PUBLISHED_BASE_URL` (optional): only if you serve the `published` branch from
+  your own domain. The default is `https://<your-org>.github.io/<repo>`.
+
+> **Heads up — the watch never closes on missing data.** An issue closes only when
+> the data shows the problem is gone. If the board shows *no data* for an
+> obligation, or a file can't be read, the issue stays open. If the published
+> files or the Ask box can't be reached at all, the run fails, and GitHub emails
+> you about the failed run.
+
+> **Heads up — GitHub pauses schedules on quiet repositories.** On a public
+> repository with no commits for 60 days, GitHub turns scheduled workflows off and
+> emails you first. Merging a record turns it back on, or you can click
+> **Enable workflow** on the Actions tab.
+
+**How you know it worked:** on the **Actions** tab, open **watch** and click **Run
+workflow**. The run passes, and its log ends with `Nothing to open, update, or
+close.` or names the issues it opened. To see an issue open and close, run it
+while an obligation is amber. The issue appears with the `uvularia-watch` label,
+and it closes with a "Cleared:" comment on the first run after the obligation is
+green.
+
+---
+
 ## What publishes, and what never does
 
 On merge to `main`, [`publish.yml`](.github/workflows/publish.yml) builds and

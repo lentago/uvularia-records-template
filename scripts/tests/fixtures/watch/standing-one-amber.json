@@ -1,0 +1,20 @@
+[
+  {
+    "id": "annual-report",
+    "state": "amber",
+    "satisfied_by": null,
+    "deadline": "2026-10-09",
+    "published_at": null,
+    "gap": -5,
+    "history": null
+  },
+  {
+    "id": "meeting-notice",
+    "state": "green",
+    "satisfied_by": "2026-09-30-notice",
+    "deadline": "2026-10-09",
+    "published_at": "2026-09-30T12:00:00Z",
+    "gap": -3,
+    "history": null
+  }
+]
