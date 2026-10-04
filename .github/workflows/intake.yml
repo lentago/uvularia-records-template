@@ -156,6 +156,7 @@ jobs:
           python3 core/validate.py . --base-ref "origin/${{ github.event.repository.default_branch }}" 2>&1 | tee "$RUNNER_TEMP/validate.txt"
 
       - name: Open (or update) the pull request and comment on the issue
+        id: pr
         if: steps.scaffold.outcome == 'success'
         uses: actions/github-script@v7
         with:
@@ -220,6 +221,7 @@ jobs:
             // carry reviewer edits, so we leave its body alone and only comment.
             const open = await github.rest.pulls.list({owner, repo, head: `${owner}:${branch}`, state: 'open'});
             let pr = open.data[0];
+            if (pr) core.setOutput('result', 'exists');
             if (!pr) {
               try {
                 const created = await github.rest.pulls.create({
@@ -228,6 +230,7 @@ jobs:
                   body,
                 });
                 pr = created.data;
+                core.setOutput('result', 'opened');
               } catch (e) {
                 // GitHub ships "Allow GitHub Actions to create and approve pull
                 // requests" OFF; without it POST /pulls returns 403. The branch is
@@ -249,13 +252,55 @@ jobs:
                   `create and approve pull requests**, then edit this issue to re-run.\n\n` +
                   `Either way the record is a **draft** until a reviewer approves it. ` +
                   `**Attached document:** ${attLine}`);
+                core.setOutput('result', 'blocked');
                 return;
               }
             }
 
+            core.setOutput('number', String(pr.number));
             await comment(
               `${marker}\nOpened a pull request for this record: ${pr.html_url}\n\n` +
               `It is a **draft** until a reviewer approves it. ` +
               (att.found && !att.downloaded
                 ? `\n\n⚠️ The attached file could not be downloaded automatically — it must be added by hand before approval.`
                 : ''));
+
+      # --- Telemetry (optional; see README "Watch the pipeline") ---------------
+      # Describes this intake (the issue number and what came of it: a pull
+      # request, a pushed branch, or a form that could not be read) and pushes it
+      # to your own Grafana Cloud Loki when LOKI_PUSH_URL is set. An issue that is
+      # not the "Add a record" form is not an event. Unset, it prints one
+      # "telemetry not configured" line. Neither step can fail the run.
+      - name: Telemetry — describe this intake
+        id: telemetry
+        if: always()
+        continue-on-error: true
+        env:
+          LOKI_PUSH_URL: ${{ vars.LOKI_PUSH_URL }}
+          LOKI_CLUSTER: ${{ vars.LOKI_CLUSTER }}
+          LOKI_TOKEN_SET: ${{ secrets.LOKI_WRITE_TOKEN != '' }}
+          JOB_STATUS: ${{ job.status }}
+          ISSUE: ${{ github.event.issue.number }}
+          IS_FORM: ${{ steps.detect.outputs.is_form }}
+          SCAFFOLD: ${{ steps.scaffold.outcome }}
+          BRANCH_EXISTS: ${{ steps.branch.outputs.exists }}
+          PR_RESULT: ${{ steps.pr.outputs.result }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          python3 scripts/telemetry.py intake --issue "$ISSUE" --is-form "$IS_FORM" \
+            --scaffold "$SCAFFOLD" --branch-exists "$BRANCH_EXISTS" \
+            --pr-result "$PR_RESULT" --pr-number "$PR_NUMBER" --job-status "$JOB_STATUS"
+
+      - name: Telemetry — push the intake event
+        if: always() && steps.telemetry.outputs.enabled == 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: lentago/drosera/.github/actions/loki-event@main
+        with:
+          loki_url: ${{ vars.LOKI_PUSH_URL }}
+          loki_token: ${{ secrets.LOKI_WRITE_TOKEN }}
+          cluster: ${{ steps.telemetry.outputs.cluster }}
+          source: uvularia
+          pipeline: records
+          stage: intake
+          payload-json: ${{ steps.telemetry.outputs.payload }}

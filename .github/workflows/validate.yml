@@ -104,6 +104,40 @@ jobs:
               await github.rest.issues.createComment({owner, repo, issue_number, body});
             }
 
+      # --- Telemetry (optional; see README "Watch the pipeline") ---------------
+      # Describes the review (the validator's outcome and the standing summary)
+      # and pushes it to your own Grafana Cloud Loki when LOKI_PUSH_URL is set.
+      # Unset, it prints one "telemetry not configured" line. Neither step can
+      # fail the check: a Loki outage is a warning, never a red pull request.
+      - name: Telemetry — describe this review
+        id: telemetry
+        if: always()
+        continue-on-error: true
+        env:
+          LOKI_PUSH_URL: ${{ vars.LOKI_PUSH_URL }}
+          LOKI_CLUSTER: ${{ vars.LOKI_CLUSTER }}
+          LOKI_TOKEN_SET: ${{ secrets.LOKI_WRITE_TOKEN != '' }}
+          JOB_STATUS: ${{ job.status }}
+          VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python3 scripts/telemetry.py reviewed --standing standing.json \
+            --validate "$VALIDATE_OUTCOME" --pr "$PR_NUMBER" --job-status "$JOB_STATUS"
+
+      - name: Telemetry — push the reviewed event
+        if: always() && steps.telemetry.outputs.enabled == 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: lentago/drosera/.github/actions/loki-event@main
+        with:
+          loki_url: ${{ vars.LOKI_PUSH_URL }}
+          loki_token: ${{ secrets.LOKI_WRITE_TOKEN }}
+          cluster: ${{ steps.telemetry.outputs.cluster }}
+          source: uvularia
+          pipeline: records
+          stage: reviewed
+          payload-json: ${{ steps.telemetry.outputs.payload }}
+
       - name: Fail if validation failed
         if: steps.validate.outcome == 'failure'
         run: |

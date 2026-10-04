@@ -97,3 +97,34 @@ jobs:
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: _out/corpus-*.json
+
+      # --- Telemetry (optional; see README "Watch the pipeline") ---------------
+      # Two steps, both unable to fail the publish. The first describes this run
+      # (digest, record counts, standing, receipt name) and prints one
+      # "telemetry not configured" line when LOKI_PUSH_URL is unset. The second
+      # pushes the event to your own Grafana Cloud Loki only when it is set, with
+      # a one-minute ceiling; a Loki outage shows as a warning, never a red run.
+      - name: Telemetry — describe this publish
+        id: telemetry
+        if: always()
+        continue-on-error: true
+        env:
+          LOKI_PUSH_URL: ${{ vars.LOKI_PUSH_URL }}
+          LOKI_CLUSTER: ${{ vars.LOKI_CLUSTER }}
+          LOKI_TOKEN_SET: ${{ secrets.LOKI_WRITE_TOKEN != '' }}
+          JOB_STATUS: ${{ job.status }}
+        run: python3 scripts/telemetry.py published --out-dir _out --job-status "$JOB_STATUS"
+
+      - name: Telemetry — push the published event
+        if: always() && steps.telemetry.outputs.enabled == 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: lentago/drosera/.github/actions/loki-event@main
+        with:
+          loki_url: ${{ vars.LOKI_PUSH_URL }}
+          loki_token: ${{ secrets.LOKI_WRITE_TOKEN }}
+          cluster: ${{ steps.telemetry.outputs.cluster }}
+          source: uvularia
+          pipeline: records
+          stage: published
+          payload-json: ${{ steps.telemetry.outputs.payload }}
