@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Validate every example in this directory against its schema, with no third-party
-libraries. Each `<name>.good.json` must validate against `<name>.schema.json`; each
-`<name>.bad.json` must FAIL (an expected failure, which proves the check can fail).
+libraries. Each `<name>.good.json` must validate against `<name>.schema.json`, as
+must any named variant `<name>.<variant>.good.json`; each `<name>.bad.json` must
+FAIL (an expected failure, which proves the check can fail).
 
 This carries a small validator for the subset of JSON Schema draft 2020-12 the
 uvularia schemas use: type (incl. unions and null), enum, const, pattern, minLength,
@@ -169,19 +170,22 @@ def main():
         schema = schemas[name]
 
         good = EXAMPLE_DIR / f"{name}.good.json"
-        if good.exists():
+        if not good.exists():
+            failures += 1
+            print(f"FAIL  missing good example for schema '{name}'")
+        # Optional named variants, <name>.<variant>.good.json — e.g. the previous
+        # release's format, which must keep validating (see README.md).
+        goods = ([good] if good.exists() else []) + sorted(EXAMPLE_DIR.glob(f"{name}.*.good.json"))
+        for path in goods:
             checked += 1
-            errors = validate(schema, _load(good), schema)
+            errors = validate(schema, _load(path), schema)
             if errors:
                 failures += 1
-                print(f"FAIL  {good.name}: expected to validate, but:")
+                print(f"FAIL  {path.name}: expected to validate, but:")
                 for err in errors:
                     print(f"        - {err}")
             else:
-                print(f"ok    {good.name} validates")
-        else:
-            failures += 1
-            print(f"FAIL  missing good example for schema '{name}'")
+                print(f"ok    {path.name} validates")
 
         bad = EXAMPLE_DIR / f"{name}.bad.json"
         if bad.exists():

@@ -37,10 +37,19 @@
     "lead": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Posted at least this long BEFORE the event the record is about.",
+      "description": "Posted at least this long BEFORE the event the record is about. With weekdays_only and/or exclude_dates, only hours that fall on counted days are counted toward the window.",
       "properties": {
         "hours": { "type": "integer", "minimum": 0 },
-        "days": { "type": "integer", "minimum": 0 }
+        "days": { "type": "integer", "minimum": 0 },
+        "weekdays_only": {
+          "type": "boolean",
+          "description": "When true, hours on Saturdays and Sundays do not count toward the lead window. Every hour of Monday to Friday counts, not only office hours."
+        },
+        "exclude_dates": {
+          "type": "array",
+          "description": "Dates (YYYY-MM-DD) whose hours do not count toward the lead window, such as legal holidays. Data, not code: a pack ships the list.",
+          "items": { "$ref": "#/$defs/iso_date" }
+        }
       },
       "oneOf": [
         { "required": ["hours"] },

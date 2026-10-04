@@ -6,5 +6,5 @@
   "subjects": ["meetings", "annual-meeting"],
   "source": "M.G.L. c. 30A, s. 20(b) — notice posted at least 48 hours before the meeting, excluding weekends and legal holidays.",
   "disclaimer_ref": "policy.yaml#not-legal-advice",
-  "lead": { "hours": 48 }
+  "lead": { "hours": 48, "weekdays_only": true, "exclude_dates": ["2026-10-12", "2026-11-11"] }
 }

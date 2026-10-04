@@ -76,7 +76,17 @@ rules repo's `policy.yaml`.
 Exactly **one** timing kind must be present:
 
 - **`lead`** — posted at least this far *before* the event. `{hours: N}` **or**
-  `{days: N}`, not both. (A 48-hour meeting notice.)
+  `{days: N}`, not both. (A 48-hour meeting notice.) Two optional fields narrow
+  which hours count toward the window:
+  - **`weekdays_only: true`** — hours on Saturdays and Sundays don't count. Every
+    hour of Monday to Friday counts, all 24 of them. It is not called
+    `business_hours` because that name suggests 9-to-5, and the Open Meeting
+    Law's "excluding Saturdays, Sundays and legal holidays" doesn't mean that.
+  - **`exclude_dates: [YYYY-MM-DD, …]`** — hours on these dates don't count
+    either (legal holidays). This is data, not code: a pack ships the list,
+    one `holidays/<year>.json` file per year, and the rule carries the dates.
+    A year missing from the list is counted as ordinary days, so the deadline
+    is *later* than the law's. Add next year's holidays before it begins.
 - **`lag`** — posted no later than this many days *after* the event.
   `{days: N}`. (Minutes within 30 days.)
 - **`cadence`** — a fresh record of this type at least every N months, measured
@@ -119,9 +129,12 @@ it, so it is the single source of compliance state.
 | `gap` | Days relative to the deadline, or `null`. Negative is ahead of the deadline; positive is overdue. | A wrong sign flips "early" and "late". |
 | `history` | Track record over a trailing window — `{window_days, evaluated, breaches}` — or `null`. | A fabricated zero-breach row would flatter a rule the vault cannot actually vouch for. |
 
-Every field is **required**, and all but `id` and `state` are nullable. A row
-with missing data is `no-data` with explicit `null`s — never a silently omitted
-field and never a fake green. (Invariant 5.)
+Every field but `history` is **required**, and all but `id` and `state` are
+nullable. A row with missing data is `no-data` with explicit `null`s — never a
+silently omitted field and never a fake green. (Invariant 5.) `history` is
+optional for now only because it is new: see
+[Compatibility between releases](#compatibility-between-releases). Today's
+`evaluate.py` always writes it.
 
 `history` is the one thing a current-state row cannot show: a timely posting
 retires the red that late ones earned, so the live row forgets the lateness. It
@@ -131,6 +144,8 @@ were red at their deadline). It is measured from receipts and records, never fro
 the current date alone, so a later timely posting never erases an earlier breach.
 When the window holds no past, receipt-dated deadline, `history` is `null` — the
 board says "no history yet", which is not the same as zero breaches.
+A row with no `history` key at all comes from a vault whose core is older than
+the field; the board reads it exactly like `null`.
 
 ## receipt.schema.json — one publish, stamped
 
@@ -148,11 +163,38 @@ proves what it did.
 
 ---
 
+## Compatibility between releases
+
+A vault and the things that read it update at different times. Your site, your
+Ask function, and your vault each pull a new core when someone gets round to it,
+so for a while a newer site reads standing written by an older core. The rule
+that keeps that from breaking a build:
+
+- **A consumer must build against the previous release's format.** A site or
+  Ask runtime built from this release must accept what the last release's
+  `evaluate.py` and `bundle.py` wrote.
+- **A new field is optional until the next release.** When a release adds a
+  field, the schema lists it under `properties` but not under `required`, and
+  the producer starts writing it straight away. The release after that may make
+  it required.
+- **Absent is not the same as invalid.** A consumer treats a missing optional
+  field as "not known yet" and shows its fallback (for `history`, "no history
+  yet"). A file that breaks the schema in any other way — a wrong type, an
+  unknown state, a missing required field — still stops the build.
+- **Keep an example of the previous format.** `examples/<name>.previous.good.json`
+  is the last release's shape. It must keep validating, so the checker catches a
+  change that would turn an older vault's output into a failed build.
+
+Today this applies to `history` on standing rows: added in this release,
+optional until the next.
+
 ## Examples and the checker
 
 Every schema has, in `examples/`:
 
 - `<name>.good.json` — a document that must validate.
+- `<name>.<variant>.good.json` — optional extra documents that must validate,
+  such as `standing.previous.good.json`, the previous release's format.
 - `<name>.bad.json` — a document that must **fail**, paired with a one-line
   `<name>.bad.why` saying why.
 
