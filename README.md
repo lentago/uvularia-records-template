@@ -157,6 +157,62 @@ corpus at that digest. Receipts are **append-only**: never edit or delete one.
 
 ---
 
+## 4. Watch the pipeline (optional)
+
+**What you are about to do:** connect this vault to a free Grafana Cloud account
+you own, so every intake, review, and publish sends one short event there. Grafana
+Cloud is a hosted dashboard service; its log store is called **Loki**.
+
+**Why bother:** the public board tells the world what is posted. The events tell
+*you* how the machine is running: when the last publish happened, which intake
+stalled, and whether a review failed. **Skip this if** the board is all you need.
+Nothing else depends on it, and with nothing set up every workflow stays green and
+prints one line: `telemetry not configured`.
+
+**How long:** about fifteen minutes the first time, most of it minting the token.
+
+1. Sign up for the **free** tier at [grafana.com](https://grafana.com) and create
+   a stack. On the stack's **Loki** tile, click **Details**. Note the **URL**
+   (`https://logs-prod-NNN.grafana.net`) and the **User**, a number that is your
+   Loki instance ID.
+2. Make a token that can only *write* logs. Go to **Administration → Users and
+   access → Cloud access policies → Create access policy**, pick your stack, and
+   tick **`logs:write`** and nothing else. Then click **Add token** and copy it.
+   It starts `glc_` and is shown once.
+   > **Heads up:** this token sits in your GitHub secrets. Write-only means that
+   > if it ever leaks, it can add log lines but never read yours.
+3. In this repository, open **Settings → Secrets and variables → Actions**:
+   - on the **Variables** tab, add `LOKI_PUSH_URL` = the URL from step 1;
+   - on the **Secrets** tab, add `LOKI_WRITE_TOKEN` = `<instance-id>:<token>`,
+     for example `123456:glc_eyJ…`;
+   - optionally, add a `LOKI_CLUSTER` variable with your organization's short
+     name. Without it, events are tagged with this repository's owner, lowercased.
+
+Each workflow then ends with two telemetry steps. The first describes the run. The
+second sends it with drosera's
+[`loki-event`](https://github.com/lentago/drosera/tree/main/.github/actions/loki-event)
+step. What goes out:
+
+| Workflow | Event (`stage`) | What it carries |
+|---|---|---|
+| intake | `intake` | the issue number and what came of it: a pull request, a pushed branch, or a form that could not be read |
+| validate | `reviewed` | the pull-request number, whether validation passed, and the board's green/amber/red counts |
+| publish | `published` | the corpus digest, record counts, the board's counts, and the receipt's file name |
+
+No names, emails, or document text are sent. An issue that isn't the "Add a
+record" form sends nothing.
+
+Sending is **best-effort**. If Grafana is down or the token is wrong, the step
+shows a warning and the publish, review, or intake still finishes green. Nothing
+you publish waits on it.
+
+**How you know it worked:** the next run's log shows
+`loki-event: pushed log_source=uvularia_published …`. In Grafana, open **Explore**,
+pick the Loki data source, and run `{source="uvularia"} | json`. Your event shows
+up within a few seconds.
+
+---
+
 ## What publishes, and what never does
 
 On merge to `main`, [`publish.yml`](.github/workflows/publish.yml) builds and
