@@ -195,7 +195,7 @@ step. What goes out:
 
 | Workflow | Event (`stage`) | What it carries |
 |---|---|---|
-| intake | `intake` | the issue number and what came of it: a pull request, a pushed branch, or a form that could not be read; plus `open` (intake items still open) and `oldest_opened_at` (when the oldest was opened, `0` when none) |
+| intake | `intake` | the issue number and what came of it: a pull request (`pr_opened`), a pushed branch left for a person to open the pull request (`branch_pushed`, `pr` is null), a form that could not be read (`form_unreadable`), or a run that produced nothing (`failed`); plus `open` (intake items still open) and `oldest_opened_at` (when the oldest was opened, `0` when none) |
 | validate | `reviewed` | the pull-request number, whether validation passed, and the board's green/amber/red counts; plus `awaiting` (pull requests whose checks are all green, waiting on a person) and `oldest_green_at` (when the longest-waiting one went green, `0` when none) |
 | publish | `published` | the corpus digest, record counts, the board's counts, and the receipt's file name; plus `announcement_latency_s`, the longest time from an announcement's pull request merging to this publish (only when an announcement went live) |
 | daily-snapshot | `intake`, `reviewed` | once a day, just the counts: `open` and `oldest_opened_at`, `awaiting` and `oldest_green_at` |

@@ -161,6 +161,9 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            // Name the outcome output pr_result, never "result": github-script
+            // writes its own `result` output (the return value) when the script ends,
+            // which blanks ours and made a pushed branch read as a failed intake.
             const fs = require('fs');
             const num = context.issue.number;
             const branch = `intake/${num}`;
@@ -221,7 +224,7 @@ jobs:
             // carry reviewer edits, so we leave its body alone and only comment.
             const open = await github.rest.pulls.list({owner, repo, head: `${owner}:${branch}`, state: 'open'});
             let pr = open.data[0];
-            if (pr) core.setOutput('result', 'exists');
+            if (pr) core.setOutput('pr_result', 'exists');
             if (!pr) {
               try {
                 const created = await github.rest.pulls.create({
@@ -230,7 +233,7 @@ jobs:
                   body,
                 });
                 pr = created.data;
-                core.setOutput('result', 'opened');
+                core.setOutput('pr_result', 'opened');
               } catch (e) {
                 // GitHub ships "Allow GitHub Actions to create and approve pull
                 // requests" OFF; without it POST /pulls returns 403. The branch is
@@ -252,7 +255,7 @@ jobs:
                   `create and approve pull requests**, then edit this issue to re-run.\n\n` +
                   `Either way the record is a **draft** until a reviewer approves it. ` +
                   `**Attached document:** ${attLine}`);
-                core.setOutput('result', 'blocked');
+                core.setOutput('pr_result', 'blocked');
                 return;
               }
             }
@@ -293,7 +296,7 @@ jobs:
           IS_FORM: ${{ steps.detect.outputs.is_form }}
           SCAFFOLD: ${{ steps.scaffold.outcome }}
           BRANCH_EXISTS: ${{ steps.branch.outputs.exists }}
-          PR_RESULT: ${{ steps.pr.outputs.result }}
+          PR_RESULT: ${{ steps.pr.outputs.pr_result }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |
           python3 scripts/telemetry.py intake --issue "$ISSUE" --is-form "$IS_FORM" \
