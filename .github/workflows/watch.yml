@@ -1,0 +1,59 @@
+# ============================================================================
+# watch — tell you in a GitHub Issue when something needs a person
+# ============================================================================
+# Every 30 minutes, scripts/watch.py reads what this vault has published
+# (standing.json and corpus-latest.json on your Pages address) and, if the
+# ASK_HEALTH_URL variable is set, your Ask function's /health. It opens one
+# issue per condition, updates it while the condition holds, and closes it when
+# the condition clears:
+#
+#   * the Ask box has served an older corpus than the published one for more
+#     than 30 minutes;
+#   * an obligation has moved to amber or red (one issue per obligation);
+#   * today's questions have used 80 % of the daily cap.
+#
+# Issues carry the label `uvularia-watch` and a hidden marker line, so nothing is
+# opened twice. GitHub emails the repository's watchers about each new issue —
+# this works with no Grafana at all. Without ASK_HEALTH_URL the two Ask checks
+# are skipped with a notice. Stdlib Python only; the default token, with nothing
+# but permission to read this repository and write issues.
+#
+# Variables (Settings → Secrets and variables → Actions → Variables), both
+# optional:
+#   PUBLISHED_BASE_URL — where the published branch is served; defaults to
+#                        https://<owner>.github.io/<repo>
+#   ASK_HEALTH_URL     — your Ask function's URL ending in /health
+# ============================================================================
+
+name: watch
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read     # check out scripts/watch.py
+  issues: write      # open, update, and close the watch issues
+
+concurrency:
+  group: watch       # two passes at once could both open the same issue
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check the published board and the Ask box
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PUBLISHED_BASE_URL: ${{ vars.PUBLISHED_BASE_URL }}
+          ASK_HEALTH_URL: ${{ vars.ASK_HEALTH_URL }}
+        run: python3 scripts/watch.py

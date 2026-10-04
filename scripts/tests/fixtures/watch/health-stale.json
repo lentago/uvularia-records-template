@@ -1,0 +1,10 @@
+{
+  "status": "ok",
+  "enabled": true,
+  "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "digest_pinned": false,
+  "rules_tag": "rules-v3",
+  "day": "2026-10-04",
+  "cap_used": 10,
+  "cap": 100
+}
