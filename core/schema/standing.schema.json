@@ -9,7 +9,7 @@
     "row": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "state", "satisfied_by", "deadline", "published_at", "gap", "history"],
+      "required": ["id", "state", "satisfied_by", "deadline", "published_at", "gap"],
       "properties": {
         "id": {
           "type": "string",
@@ -30,7 +30,7 @@
         },
         "gap": { "type": ["integer", "null"] },
         "history": {
-          "description": "Track record over a trailing window, measured from receipts and records — never from the current date alone. null means the window held no past deadline with a receipt-dated outcome: the board says 'no history yet', never a fabricated zero.",
+          "description": "Track record over a trailing window, measured from receipts and records — never from the current date alone. null means the window held no past deadline with a receipt-dated outcome: the board says 'no history yet', never a fabricated zero. Optional until the next release: a vault whose core predates history omits the key, and a consumer treats an absent history like null. evaluate.py always emits it.",
           "type": ["object", "null"],
           "additionalProperties": false,
           "required": ["window_days", "evaluated", "breaches"],

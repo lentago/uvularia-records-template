@@ -351,6 +351,39 @@ def _day_gap(reference, deadline):
     return (reference - deadline).days
 
 
+def lead_deadline(spec, event):
+    """The last instant a ``lead`` record can be posted and still be on time.
+
+    A plain rule is ``event - N``. With ``weekdays_only`` and/or ``exclude_dates``
+    the window counts only hours that fall on counted days, so we walk back from
+    the event one calendar day at a time: an excluded day (Saturday or Sunday
+    under ``weekdays_only``, or any listed date) is skipped whole and costs
+    nothing; a counted day spends up to 24 of the window's hours. Days are UTC
+    calendar days, the same clock every other deadline here uses.
+
+    A 48-hour weekdays-only notice for a Monday meeting must therefore be up by
+    the start of the previous Thursday; for a Friday meeting, by the start of
+    Wednesday. The walk always ends: the exclusion list is finite and every week
+    has weekdays."""
+    total = timedelta(hours=spec["hours"]) if "hours" in spec else timedelta(days=spec["days"])
+    weekdays_only = spec.get("weekdays_only") is True
+    excluded = {d for d in (parse_date(x) for x in spec.get("exclude_dates") or []) if d}
+    if not weekdays_only and not excluded:
+        return event - total
+
+    cursor, remaining = event, total
+    while remaining > timedelta(0):
+        day = (cursor - timedelta(microseconds=1)).date()  # the day just before cursor
+        day_start = midnight_utc(day)
+        if (weekdays_only and day.weekday() >= 5) or day in excluded:
+            cursor = day_start
+            continue
+        spend = min(cursor - day_start, remaining)
+        cursor -= spend
+        remaining -= spend
+    return cursor
+
+
 # --------------------------------------------------------------------------- #
 # Matching records to an obligation.                                         #
 # --------------------------------------------------------------------------- #
@@ -423,8 +456,7 @@ def _eval_lead(obligation, records, pubs, now, warn_days):
         return _no_data(obligation["id"])
     record = _latest(cands)
     event = midnight_utc(parse_date(record["effective"]))
-    offset = timedelta(hours=spec["hours"]) if "hours" in spec else timedelta(days=spec["days"])
-    deadline_instant = event - offset
+    deadline_instant = lead_deadline(spec, event)
     deadline_date = deadline_instant.date()
 
     published = pubs.get(record["id"])
@@ -525,13 +557,12 @@ def _historical_outcomes(obligation, records, pubs):
 
     if "lead" in obligation:
         spec = obligation["lead"]
-        offset = timedelta(hours=spec["hours"]) if "hours" in spec else timedelta(days=spec["days"])
         out = []
         for record in cands:
             published = pubs.get(record["id"])
             if published is None:
                 continue
-            deadline_instant = midnight_utc(parse_date(record["effective"])) - offset
+            deadline_instant = lead_deadline(spec, midnight_utc(parse_date(record["effective"])))
             out.append((deadline_instant.date(), published[0] > deadline_instant))
         return out
 

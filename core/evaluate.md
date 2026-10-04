@@ -106,6 +106,26 @@ the start of that day, UTC).
   `event − N` (the last moment you could post and still be on time). A notice
   published after that is **red even though the record exists** — the board shows
   the late `published_at` and leaves `satisfied_by` null.
+
+  With `weekdays_only: true`, `exclude_dates`, or both, only hours on counted
+  days make up the *N*. The evaluator walks back from the event one day at a
+  time. Saturdays and Sundays (with `weekdays_only`) and listed dates (with
+  `exclude_dates`) are skipped, and each other day uses up 24 of the hours.
+  For a 48-hour, weekdays-only rule:
+
+  | Meeting | Deadline (start of day, UTC) | Why |
+  |---|---|---|
+  | Monday | the Thursday before | Sunday and Saturday are skipped; Friday and Thursday count |
+  | Friday | Wednesday | no weekend in the window, so it is the same as plain 48 hours |
+  | Tuesday after a Monday holiday | the Thursday before | the holiday, Sunday, and Saturday are skipped |
+
+  So a notice posted on Friday evening for a Monday meeting is **red** under this
+  rule, though it would be green under a plain 48 hours. A record carries only
+  the meeting's *date*, which counts as the start of that day. That means a
+  notice for a Friday meeting has to be up by the start of Wednesday: a
+  Wednesday-afternoon posting is late, under a plain 48-hour rule too. Days
+  are UTC calendar days, the same clock every other deadline uses. `history`
+  judges each past posting the same way.
 - **lag** — posted no later than *N* days **after** the event. Deadline =
   `event + N`.
 - **cadence** — a fresh approved record at least every *N* months, measured from
@@ -128,7 +148,11 @@ the warning window is set once, by the publish workflow, for the whole board.
 ## Proving the board can be wrong
 
 The tests in [`tests/`](tests/) run a fixture vault that puts every rule kind in
-every state — including a notice published too late, which must come out red. The
+every state — including a notice published too late, which must come out red. A
+second vault (`tests/fixtures/lead-calendar/`) judges the same postings under
+plain and weekdays-only lead rules, so a Friday-evening notice for a Monday
+meeting has to come out green under one rule and red under the other, and a
+listed holiday has to be the thing that turns a notice late. The
 expected table is written out by hand, so the evaluator cannot pass by agreeing
 with itself; break the timing logic and a row stops matching. That is the same
 discipline the schema examples use: a check that cannot fail proves nothing.

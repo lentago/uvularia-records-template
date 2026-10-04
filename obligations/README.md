@@ -11,7 +11,7 @@ Each rule names which record `type` satisfies it and exactly **one** timing kind
 
 | Kind | Means | Example |
 |---|---|---|
-| `lead` | posted at least this far *before* the event | a 48-hour meeting notice |
+| `lead` | posted at least this far *before* the event; add `weekdays_only: true` to skip Saturdays and Sundays and `exclude_dates: [...]` to skip listed holidays | a 48-hour meeting notice, weekends and holidays excluded |
 | `lag` | posted no later than this many days *after* the event | minutes within 30 days |
 | `cadence` | a fresh record at least every N months | a policy reviewed annually |
 | `one_off` | a single fixed due date | a filing due this year |
