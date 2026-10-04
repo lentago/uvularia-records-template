@@ -35,17 +35,59 @@ a two-minute pull request.
 5. Merge your first change (even just the edits above). The **publish** workflow
    runs and creates a `published` branch.
 6. In **Settings → Pages**, set the source to the **`published`** branch, folder
-   `/ (root)`. Your corpus, standing file, and feed are now served by URL:
-   `https://<your-org>.github.io/<repo>/standing.json`, `.../feed.xml`, and
-   `.../corpus-latest.json`.
+   `/ (root)`. Your public board is now at `https://<your-org>.github.io/<repo>/`,
+   and your corpus, standing file, and feed are served next to it:
+   `.../standing.json`, `.../feed.xml`, and `.../corpus-latest.json`.
 
 **How you know it worked:** you have a green **validate** check on pull requests,
-a `published` branch with a `corpus-*.json`, a `standing.json`, a `feed.xml`, and
-a receipt under `receipts/`, and the three URLs above resolve.
+a `published` branch with an `index.html`, a `corpus-*.json`, a `standing.json`, a
+`feed.xml`, and a receipt under `receipts/`, and the board and the three URLs above
+resolve.
 
 ---
 
-## 2. Add your first record
+## 2. Your public board
+
+**What you are about to do:** open the public **"Is it posted?"** page this vault
+publishes, and check that it reads right.
+
+**Why bother:** this page is what the public, your board, and a regulator see.
+It needs nothing beyond this repository: no second repository, no build tools, and
+no account to read it.
+
+**How long:** a minute, once the first publish has run.
+
+1. Open `https://<your-org>.github.io/<repo>/`. GitHub Pages can take a few
+   minutes to serve the first publish.
+2. Check the top of the page: your organization's name (the first heading of
+   [`index.md`](index.md)) and **Last published**, the time the publish workflow
+   ran. That is the same server-side time as the receipt it links to.
+3. Read the table: one row per obligation, with its state in words (**green**,
+   **amber**, **red**, or **no data**), its deadline, and the record that satisfies
+   it, linked to the file in this repository. Below it are your most recent
+   records.
+
+Every publish rewrites the page from that publish's
+[`standing.json`](core/schema/standing.schema.json), so it is never out of step
+with the board data. If the standings can't be read, the page says the board has
+no data. It never shows a row as met without the data behind it. The page is
+written by [`scripts/board.py`](scripts/board.py). It is plain HTML with no
+scripts, and it reads well on a phone.
+
+> **The site is optional.** The `<org>-site` template builds a second, branded
+> site from the same published files. It adds your own look, a page per record,
+> and the **Ask** box that answers questions from your records. Add it when you
+> want those. The board here keeps working with or without it.
+
+**How you know it worked:** the page shows your organization's name, a "Last
+published" time that matches the newest receipt, and one row for each obligation in
+[`obligations/`](obligations/README.md). A rule with nothing posted for it yet
+reads **no data**, or **red** if it has a fixed due date that has passed. That is
+the honest answer, not an error.
+
+---
+
+## 3. Add your first record
 
 There are two doors in, and both end in a pull request a reviewer merges. Use the
 **issue form** if you have a browser and a document; use **Obsidian** if you are
@@ -134,7 +176,7 @@ python3 core/evaluate.py .
 
 ---
 
-## 3. Read your first receipt
+## 4. Read your first receipt
 
 **What you are about to do:** open the proof of a publish.
 
@@ -157,7 +199,7 @@ corpus at that digest. Receipts are **append-only**: never edit or delete one.
 
 ---
 
-## 4. Watch the pipeline (optional)
+## 5. Watch the pipeline (optional)
 
 **What you are about to do:** connect this vault to a free Grafana Cloud account
 you own, so every intake, review, and publish sends one short event there. Grafana
@@ -232,7 +274,7 @@ up within a few seconds.
 
 ---
 
-## 5. Get told when something needs you
+## 6. Get told when something needs you
 
 **What you are about to do:** turn on a check that runs every 30 minutes and opens
 a GitHub Issue when something needs a person. It closes the issue on its own when
@@ -300,6 +342,7 @@ appends to the `published` branch:
 | Artifact | What it is |
 |---|---|
 | `corpus-<digest>.json` | the published records, in the Ask engine's entry shape — [schema](core/schema/bundle.schema.json) |
+| `index.html` | the public board page, rewritten each publish from `standing.json` (see section 2) |
 | `standing.json` | the live board data, one row per obligation — [schema](core/schema/standing.schema.json) |
 | `feed.xml` | an Atom feed of your announcements |
 | `receipts/<YYYY-MM-DDTHHMMSSZ>-<digest>.md` | the stamped, append-only receipt — [schema](core/schema/receipt.schema.json) |
