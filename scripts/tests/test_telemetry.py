@@ -210,6 +210,24 @@ class Payloads(unittest.TestCase):
         p = self.payload(base + ["--scaffold", "success", "--branch-exists", "true"])
         self.assertEqual(p["outcome"], "already_open")
 
+    def test_intake_workflow_hands_the_pr_outcome_over_on_a_name_github_script_leaves_alone(self):
+        # github-script overwrites its own `result` output with the script's
+        # return value, so the describe step saw an empty outcome and reported
+        # "failed" for a branch that was pushed on purpose.
+        text = (SCRIPTS_DIR.parent / ".github" / "workflows" / "intake.yml").read_text()
+        self.assertNotIn("setOutput('result'", text)
+        self.assertNotIn("steps.pr.outputs.result", text)
+        for value in ("opened", "exists", "blocked"):
+            self.assertIn(f"core.setOutput('pr_result', '{value}')", text)
+        self.assertIn("PR_RESULT: ${{ steps.pr.outputs.pr_result }}", text)
+
+    def test_a_pushed_branch_is_not_a_failure(self):
+        base = ["intake", "--issue", "12", "--is-form", "true", "--scaffold", "success",
+                "--branch-exists", "false"]
+        self.assertEqual(self.payload(base + ["--pr-result", "blocked"])["outcome"], "branch_pushed")
+        # a run that produced nothing (no PR outcome at all) is still a failure
+        self.assertEqual(self.payload(base + ["--pr-result", ""])["outcome"], "failed")
+
     def test_an_ordinary_issue_is_not_an_event(self):
         rc, text, out = run(["intake", "--issue", "5", "--is-form", "false"], CONFIGURED)
         self.assertEqual((rc, out["enabled"]), (0, "false"))
