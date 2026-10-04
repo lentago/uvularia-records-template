@@ -1,0 +1,129 @@
+# ============================================================================
+# daily-snapshot — tell the pipeline pane what is waiting, once a day
+# ============================================================================
+# Optional; does nothing until telemetry is set up (README "Watch the pipeline").
+#
+# The intake and validate workflows send a count of what is waiting each time
+# they run: open intake issues and pull requests, and green pull requests no one
+# has merged yet. On a quiet week neither runs, and the pane's Intake and
+# Reviewed panels would go stale. This sends the same two counts once a day so
+# they stay current, with no issue or pull request needed to start it.
+#
+#   intake    → `open`, `oldest_opened_at`  (scripts/pipeline_snapshot.py intake)
+#   reviewed  → `awaiting`, `oldest_green_at` (scripts/pipeline_snapshot.py reviewed)
+#
+# Without LOKI_PUSH_URL it prints one "telemetry not configured" line per job,
+# asks GitHub nothing, and stays green. With it, a count GitHub won't give is
+# left out of the event (the pane reads "no data"), and a Loki outage is a
+# warning; no step can turn the run red. The token reads issues, pull requests
+# and check results, and writes nothing.
+#
+# GitHub runs schedules on a best-effort basis (often some minutes late), and
+# pauses them in a public repository with no activity for 60 days. A once-a-day
+# count tolerates both: the pane looks back seven days.
+# ============================================================================
+
+name: daily-snapshot
+
+on:
+  schedule:
+    - cron: '17 6 * * *'   # once a day, off the top of the hour when GitHub is busiest
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  checks: read
+  statuses: read
+
+jobs:
+  intake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Telemetry — count open intake
+        if: always() && vars.LOKI_PUSH_URL != ''
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/pipeline_snapshot.py intake --out "$RUNNER_TEMP/intake-snapshot.json"
+
+      - name: Telemetry — describe the open intake
+        id: telemetry
+        if: always()
+        continue-on-error: true
+        env:
+          LOKI_PUSH_URL: ${{ vars.LOKI_PUSH_URL }}
+          LOKI_CLUSTER: ${{ vars.LOKI_CLUSTER }}
+          LOKI_TOKEN_SET: ${{ secrets.LOKI_WRITE_TOKEN != '' }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          python3 scripts/telemetry.py intake --scheduled --job-status "$JOB_STATUS" \
+            --snapshot "$RUNNER_TEMP/intake-snapshot.json"
+
+      - name: Telemetry — push the intake snapshot
+        if: always() && steps.telemetry.outputs.enabled == 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: lentago/drosera/.github/actions/loki-event@main
+        with:
+          loki_url: ${{ vars.LOKI_PUSH_URL }}
+          loki_token: ${{ secrets.LOKI_WRITE_TOKEN }}
+          cluster: ${{ steps.telemetry.outputs.cluster }}
+          source: uvularia
+          pipeline: records
+          stage: intake
+          payload-json: ${{ steps.telemetry.outputs.payload }}
+
+  reviewed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Telemetry — count pull requests waiting on a reviewer
+        if: always() && vars.LOKI_PUSH_URL != ''
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/pipeline_snapshot.py reviewed --out "$RUNNER_TEMP/reviewed-snapshot.json"
+
+      - name: Telemetry — describe the review queue
+        id: telemetry
+        if: always()
+        continue-on-error: true
+        env:
+          LOKI_PUSH_URL: ${{ vars.LOKI_PUSH_URL }}
+          LOKI_CLUSTER: ${{ vars.LOKI_CLUSTER }}
+          LOKI_TOKEN_SET: ${{ secrets.LOKI_WRITE_TOKEN != '' }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          python3 scripts/telemetry.py reviewed --scheduled --job-status "$JOB_STATUS" \
+            --snapshot "$RUNNER_TEMP/reviewed-snapshot.json"
+
+      - name: Telemetry — push the review snapshot
+        if: always() && steps.telemetry.outputs.enabled == 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: lentago/drosera/.github/actions/loki-event@main
+        with:
+          loki_url: ${{ vars.LOKI_PUSH_URL }}
+          loki_token: ${{ secrets.LOKI_WRITE_TOKEN }}
+          cluster: ${{ steps.telemetry.outputs.cluster }}
+          source: uvularia
+          pipeline: records
+          stage: reviewed
+          payload-json: ${{ steps.telemetry.outputs.payload }}
