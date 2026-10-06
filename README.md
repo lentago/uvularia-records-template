@@ -231,9 +231,12 @@ prints one line: `telemetry not configured`.
      name. Without it, events are tagged with this repository's owner, lowercased.
 
 Each workflow then ends with two telemetry steps. The first describes the run. The
-second sends it with drosera's
+second sends it with the `loki-event` step in
+[`.github/actions/loki-event/`](.github/actions/loki-event/action.yml), a copy of
+drosera's
 [`loki-event`](https://github.com/lentago/drosera/tree/main/.github/actions/loki-event)
-step. What goes out:
+that lives in this repository, so your workflows depend on nothing outside it. What
+goes out:
 
 | Workflow | Event (`stage`) | What it carries |
 |---|---|---|
