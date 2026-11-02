@@ -1,0 +1,119 @@
+# ============================================================================
+# re-evaluate — re-check the board four times a day, between publishes
+# ============================================================================
+# A board row is true only as of the moment it was evaluated. With nothing new
+# published, an amber still turns red the day its deadline passes. The publish
+# workflow evaluates only when you merge, so a quiet month would leave the board
+# showing what was true at the last merge. This workflow re-judges it on a
+# schedule.
+#
+# Each run:
+#   1. reads the newest receipt on the `published` branch and checks out the
+#      commit it published, so it judges exactly what the public can see;
+#   2. runs that commit's own evaluator (core/bundle.py evaluate) at this run's
+#      clock, so the same code that published the board re-judges it;
+#   3. rewrites standing.json, whose rows now carry this run's `evaluated_at` and
+#      their `valid_until`, and the board page (that commit's scripts/board.py)
+#      on the `published` branch, and pushes.
+#
+# It writes NO receipt and no corpus. Receipts record what was published; standing
+# is derived from them. Every state changes only when the UTC date changes, so the
+# 00:17 UTC run picks up the day's changes and the other three are spares. A row
+# that would change at the next midnight says so in its `valid_until`, and the
+# boards show it as unknown from then until this workflow re-checks it; any row
+# not re-checked for 24 hours shows as unknown too, and the watch workflow opens
+# an issue (core/evaluate.md, "How current a row is").
+#
+# If a publish lands while this runs, this run's push is refused and it stops
+# green: the publish wrote a fresher board. The publish workflow retries its own
+# push the same way, so neither can lose the other's work.
+# ============================================================================
+
+name: re-evaluate
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'   # 00:17, 06:17, 12:17, 18:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write    # push standing.json and index.html to the published branch
+
+concurrency:
+  group: re-evaluate
+  cancel-in-progress: false
+
+jobs:
+  re-evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Stamp this run's clock
+        run: echo "EVALUATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Check out the published branch and the commit it published
+        id: src
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --no-tags origin
+          if ! git ls-remote --exit-code --heads origin published >/dev/null 2>&1; then
+            echo "::notice title=re-evaluate::nothing is published yet; the first merge to main publishes the board"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git worktree add _pub published
+          commit="$(python3 core/bundle.py last-commit --receipts _pub/receipts)"
+          if ! git cat-file -e "${commit}^{commit}" 2>/dev/null; then
+            echo "::error title=re-evaluate::the newest receipt names commit ${commit}, which is not in this repository's history. Run the publish workflow (merge to main) to write a fresh receipt."
+            exit 1
+          fi
+          git worktree add --detach _src "$commit"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Re-evaluate the published vault now
+        if: steps.src.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          # The published commit's own core and board script, not this branch's.
+          python3 _src/core/bundle.py evaluate \
+            --vault _src \
+            --receipts _pub/receipts \
+            --out _out \
+            --now "$EVALUATED_AT"
+          cp _out/standing.json _pub/standing.json
+          python3 _src/scripts/board.py --vault _src --artifacts _pub --out _pub/index.html
+
+      - name: Push the re-evaluated board (no receipt; standing is derived)
+        if: steps.src.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          git -C _pub add standing.json index.html
+          if git -C _pub diff --cached --quiet; then
+            echo "The board is unchanged."
+            exit 0
+          fi
+          git -C _pub commit -m "Re-evaluate standing at ${EVALUATED_AT} (${COMMIT::7})"
+          if git -C _pub push origin published; then
+            exit 0
+          fi
+          # Refused. If the branch moved, a publish got there first: fine. If it
+          # did not move, the push failed for some other reason: fail the run.
+          git -C _pub fetch --no-tags origin published
+          if git -C _pub merge-base --is-ancestor origin/published HEAD; then
+            echo "::error title=re-evaluate::could not push to the published branch, and it has not moved; see the push error above"
+            exit 1
+          fi
+          echo "::notice title=re-evaluate::a publish landed during this run and wrote a fresher board; nothing to push"
+        env:
+          COMMIT: ${{ steps.src.outputs.commit }}

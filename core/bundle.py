@@ -37,6 +37,22 @@ The build does not read a commit time or a file mtime for it. (Invariant 4.)
 **Never fake green.** Standing comes straight from ``evaluate.py``; a record with
 no receipt has no publish time and so can never be reported green. (Invariant 5.)
 
+**Re-evaluating between publishes.** A row is true only as of the instant it was
+evaluated, so the vault template's ``re-evaluate`` workflow re-judges the board on
+a schedule, against what was last published:
+
+    python3 core/bundle.py last-commit --receipts _published/receipts
+    python3 core/bundle.py evaluate \
+        --vault _src \
+        --receipts _published/receipts \
+        --out _publish \
+        --now 2026-11-01T06:17:00Z
+
+``last-commit`` prints the commit the newest receipt published, so the caller can
+check out exactly that vault. ``evaluate`` writes ``standing.json`` only, with
+every row's ``evaluated_at`` set to ``--now``. It writes no receipt and no corpus:
+receipts record what was published, and standing is derived from them.
+
 Every artifact is validated against its schema before it is written; a build that
 cannot produce a schema-valid artifact fails loudly rather than shipping it.
 
@@ -355,10 +371,7 @@ def build(vault, out_dir, published_at, run_url, commit,
     # this new one into the vault's receipts/ (the ephemeral CI checkout), run the
     # one evaluator, then fill the receipt's standing counts from its result.
     receipts_dir = vault / "receipts"
-    receipts_dir.mkdir(parents=True, exist_ok=True)
-    if prior_receipts and Path(prior_receipts).is_dir():
-        for src in sorted(Path(prior_receipts).glob("*.md")):
-            (receipts_dir / src.name).write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+    _stage_receipts(vault, prior_receipts)
 
     receipt = {
         "digest": digest,
@@ -410,6 +423,59 @@ def build(vault, out_dir, published_at, run_url, commit,
     }
 
 
+def _stage_receipts(vault, receipts):
+    """Copy the published receipts into the vault's ``receipts/`` (an ephemeral
+    CI checkout), where the evaluator reads publish times from."""
+    receipts_dir = Path(vault) / "receipts"
+    receipts_dir.mkdir(parents=True, exist_ok=True)
+    if receipts and Path(receipts).is_dir():
+        for src in sorted(Path(receipts).glob("*.md")):
+            (receipts_dir / src.name).write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+
+
+def latest_receipt(receipts):
+    """The receipt with the latest ``published_at`` in ``receipts``, or None when
+    there are none.
+
+    Every receipt must read cleanly. One that does not raises ``ValueError``
+    rather than being skipped: skipping a broken newest receipt would quietly
+    re-judge an older commit and publish that as the current board."""
+    newest = None
+    for path in sorted(Path(receipts).glob("*.md")) if Path(receipts).is_dir() else []:
+        try:
+            receipt = _evaluate._load_structured(path)
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            raise ValueError(f"{path.name}: unreadable receipt ({exc})") from exc
+        when = _evaluate.parse_datetime(receipt.get("published_at")) if isinstance(receipt, dict) else None
+        if when is None:
+            raise ValueError(f"{path.name}: receipt has no readable published_at")
+        if newest is None or when > newest[0]:
+            newest = (when, receipt)
+    return newest[1] if newest else None
+
+
+def reevaluate(vault, receipts, out_dir, now, warn_days=7):
+    """Re-judge the published vault at ``now`` and write ``standing.json`` only.
+
+    ``vault`` is a checkout of the commit the newest receipt published;
+    ``receipts`` is the published branch's ``receipts/``. Nothing else is
+    written: no receipt, no corpus, no feed."""
+    when = _evaluate.parse_datetime(now) if isinstance(now, str) else now
+    if when is None:
+        raise SystemExit(f"error: --now {now!r} is not an ISO 8601 time")
+    _stage_receipts(vault, receipts)
+    rows = _evaluate.evaluate(Path(vault), now=when, warn_days=warn_days)
+    _require_valid("standing", rows)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "standing.json").write_text(
+        json.dumps(rows, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    counts = {"green": 0, "amber": 0, "red": 0, "no_data": 0}
+    for row in rows:
+        counts["no_data" if row["state"] == "no-data" else row["state"]] += 1
+    return {"evaluated_at": _evaluate.format_instant(when), "counts": counts}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Build a uvularia vault's published artifacts.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -422,7 +488,35 @@ def main(argv=None):
     b.add_argument("--prior-receipts", help="directory of earlier receipts (the published branch's receipts/)")
     b.add_argument("--prev-bundle", help="the previous corpus-<digest>.json, for the changed/retracted diff")
     b.add_argument("--warn-days", type=int, default=7, help="amber window passed to evaluate.py (default: 7)")
+    e = sub.add_parser("evaluate", help="re-judge the published vault now; write standing.json only")
+    e.add_argument("--vault", required=True, help="a checkout of the commit the newest receipt published")
+    e.add_argument("--receipts", required=True, help="the published branch's receipts/")
+    e.add_argument("--out", required=True, help="directory to write standing.json into")
+    e.add_argument("--now", required=True, help="evaluation time (ISO 8601, from the workflow's clock)")
+    e.add_argument("--warn-days", type=int, default=7, help="amber window passed to evaluate.py (default: 7)")
+    c = sub.add_parser("last-commit", help="print the commit the newest receipt published")
+    c.add_argument("--receipts", required=True, help="the published branch's receipts/")
     args = parser.parse_args(argv)
+
+    if args.command == "last-commit":
+        try:
+            receipt = latest_receipt(args.receipts)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        commit = str((receipt or {}).get("commit") or "")
+        if not re.fullmatch(r"[0-9a-f]{7,40}", commit):
+            print(f"error: no receipt under {args.receipts} names a commit", file=sys.stderr)
+            return 1
+        print(commit)
+        return 0
+
+    if args.command == "evaluate":
+        result = reevaluate(args.vault, args.receipts, args.out, args.now, args.warn_days)
+        c = result["counts"]
+        print(f"standing   standing.json evaluated at {result['evaluated_at']}  "
+              f"(green {c['green']}, amber {c['amber']}, red {c['red']}, no-data {c['no_data']})")
+        return 0
 
     result = build(
         vault=args.vault, out_dir=args.out, published_at=args.published_at,

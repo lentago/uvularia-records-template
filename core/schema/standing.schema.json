@@ -29,6 +29,16 @@
           "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2})?(Z|[+-][0-9]{2}:[0-9]{2})?)?$"
         },
         "gap": { "type": ["integer", "null"] },
+        "evaluated_at": {
+          "description": "The instant (UTC) this row was evaluated: the publish workflow's server-side time, or the time the scheduled re-evaluation ran. A row is only true as of this instant; valid_until says how long it stays current. Optional until the next release: a vault whose core predates it omits the key, and a consumer reads an absent evaluated_at as the corpus bundle's published_at, which is when an older core evaluated. evaluate.py always emits it.",
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "valid_until": {
+          "description": "The instant (UTC) after which this row must not be shown as current: the next UTC midnight when the row's state, satisfying record or deadline changes then with nothing new published, otherwise 24 hours after evaluated_at. A consumer shows a row past its valid_until as unknown, never as the colour it last had. gap and history are as of evaluated_at. Optional until the next release: a consumer reads an absent valid_until as 24 hours after evaluated_at (or after the bundle's published_at when evaluated_at is absent too). evaluate.py always emits it.",
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
         "history": {
           "description": "Track record over a trailing window, measured from receipts and records — never from the current date alone. null means the window held no past deadline with a receipt-dated outcome: the board says 'no history yet', never a fabricated zero. Optional until the next release: a vault whose core predates history omits the key, and a consumer treats an absent history like null. evaluate.py always emits it.",
           "type": ["object", "null"],

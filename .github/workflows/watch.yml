@@ -10,7 +10,9 @@
 #   * the Ask box has served an older corpus than the published one for more
 #     than 30 minutes;
 #   * an obligation has moved to amber or red (one issue per obligation);
-#   * today's questions have used 80 % of the daily cap.
+#   * today's questions have used 80 % of the daily cap;
+#   * the board has not been re-checked for a day (the re-evaluate workflow has
+#     stopped, or GitHub paused it).
 #
 # Issues carry the label `uvularia-watch` and a hidden marker line, so nothing is
 # opened twice. GitHub emails the repository's watchers about each new issue —

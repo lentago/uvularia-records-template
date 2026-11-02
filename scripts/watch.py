@@ -11,7 +11,10 @@ or closes one issue per condition:
   * **obligation amber or red** — one issue per obligation, opened when it moves
     to amber or red, updated (with a comment) if it moves between the two, and
     closed when it is green again;
-  * **cap past 80 %** — today's questions have used 80 % or more of the daily cap.
+  * **cap past 80 %** — today's questions have used 80 % or more of the daily cap;
+  * **board not re-checked** — the published standing was evaluated more than a
+    day ago (``FRESH_AFTER``), so the scheduled re-evaluation has stopped: GitHub
+    pauses schedules on quiet public repositories, and a failing run stops it too.
 
     python3 scripts/watch.py                  # what the workflow runs
     python3 scripts/watch.py --dry-run        # print what it would do, touch nothing
@@ -38,13 +41,16 @@ newer one is closed as a duplicate.
 line records the state it last reported (``amber`` or ``red``). There is nothing
 else to remember — an obligation with no open issue was, as far as anyone has
 been told, fine. Keeping it in the issue means the job needs no write access to
-your code or to the ``published`` branch, which stays the append-only record of
-what you published and is never touched by a timer.
+your code or to the ``published`` branch. (The separate ``re-evaluate`` workflow
+is the only timer that writes there, and it rewrites only ``standing.json`` and
+the board page, never a receipt.)
 
 **It never closes on missing data.** An issue closes only when the data says the
 condition has cleared: the obligation is green, the digests match, the cap is
 below 80 %. If a file can't be read, or an obligation shows ``no-data``, the
-issue is left as it is. Unreachable data fails the run (GitHub emails you about
+issue is left as it is. A green row past its ``valid_until`` (or, from an older
+core, a day after the board was evaluated) is not current either, so it closes
+nothing. Unreachable data fails the run (GitHub emails you about
 a failed scheduled run); a vault that has not published yet is a notice.
 
 Python 3.12, standard library only.
@@ -67,6 +73,9 @@ LABEL_COLOR = "d93f0b"
 LABEL_DESCRIPTION = "Opened and closed by the watch workflow"
 STALE_AFTER = timedelta(minutes=30)
 CAP_ALERT = 0.80
+# A standing row is current for a day after it was evaluated: the same limit as
+# FRESH_HOURS in core/evaluate.py, which this script does not import.
+FRESH_AFTER = timedelta(hours=24)
 
 MARKER_RE = re.compile(r"^<!-- uvularia-watch: (?P<key>[a-z0-9:_-]+) -->$", re.M)
 STATE_RE = re.compile(r"^<!-- uvularia-watch-state: (?P<state>[a-z0-9_-]+) -->$", re.M)
@@ -173,12 +182,72 @@ def stale_digest(bundle, health, now):
     )
 
 
-def obligations(standing, open_keys):
+def evaluated_at(standing, bundle):
+    """When the published standing was evaluated, or None if nothing says.
+
+    The rows' own ``evaluated_at`` (the oldest). A vault whose core predates the
+    field evaluated only at publish, so the bundle's ``published_at`` stands in."""
+    if standing:
+        stamps = [_parse_time(r.get("evaluated_at")) for r in standing]
+        if all(stamps):
+            return min(stamps)
+    return _parse_time((bundle or {}).get("published_at"))
+
+
+def evaluation(standing, bundle, now):
+    """Has the board been re-checked within FRESH_AFTER?"""
+    key = "board-not-rechecked"
+    if not standing:
+        return Finding(key, UNKNOWN, note="no standing rows are published to check")
+    when = evaluated_at(standing, bundle)
+    if when is None:
+        return Finding(key, UNKNOWN, note="nothing published says when the board was evaluated")
+    stamp = when.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if now - when <= FRESH_AFTER:
+        return Finding(key, CLEAR, note=f"The board was re-checked at {stamp}.")
+    hours = int((now - when).total_seconds() // 3600)
+    return Finding(
+        key, ACTIVE, state="stale",
+        title="The public board has not been re-checked for over a day",
+        body=(
+            f"**What happened.** Your public board was last evaluated at {stamp}, "
+            f"{hours} hours ago. A row is true only as of when it was evaluated: a "
+            "deadline can pass with nothing new published, and the board would not "
+            "notice. The board now shows every row as **unknown**, and will until it "
+            "is re-checked.\n\n"
+            "The `re-evaluate` workflow re-checks the board four times a day. It has "
+            "stopped, or it is failing.\n\n"
+            "**What to do.**\n\n"
+            "1. Open the **Actions** tab and pick **re-evaluate**. If GitHub shows "
+            "\"This scheduled workflow is disabled\", click **Enable workflow**. GitHub "
+            "turns schedules off on a public repository with no activity for 60 days.\n"
+            "2. Click **Run workflow** to re-check the board now. If the run fails, its "
+            "log says why.\n"
+            "3. Keep important deadlines on a person's calendar as well. The board "
+            "tells you what the vault holds; only the filing receipt from the agency "
+            "proves a filing landed.\n\n"
+            "This issue closes itself when the board has been re-checked."
+        ),
+    )
+
+
+def row_current(row, evaluated, now):
+    """Is this row still current: inside its own ``valid_until``, or for a row
+    from an older core, within a day of when the board was evaluated?"""
+    lapse = _parse_time(row.get("valid_until"))
+    if lapse is None and evaluated is not None:
+        lapse = evaluated + FRESH_AFTER
+    return lapse is not None and now <= lapse
+
+
+def obligations(standing, open_keys, current=lambda row: True):
     """One finding per obligation that is amber or red, or has an open issue.
 
     Amber and red are ACTIVE. Green CLEARs an open issue. ``no-data`` is UNKNOWN:
     missing data is not a passing obligation, so it never closes an issue. An
-    obligation that has vanished from standing.json is left alone too.
+    obligation that has vanished from standing.json is left alone too. A green
+    row that is no longer ``current(row)`` is only what the row showed when it was
+    evaluated, so it is UNKNOWN too.
     """
     prefix = "obligation:"
     rows = {row["id"]: row for row in standing}
@@ -188,6 +257,11 @@ def obligations(standing, open_keys):
         state = row.get("state")
         if state in ("amber", "red"):
             findings.append(_obligation_issue(key, row))
+        elif state == "green" and not current(row):
+            if key in open_keys:
+                findings.append(Finding(key, UNKNOWN, note=f"`{oid}` showed green, but the "
+                                                           "row is past its valid_until; "
+                                                           "leaving its issue open"))
         elif state == "green":
             if key in open_keys:
                 findings.append(Finding(key, CLEAR, note=(
@@ -502,7 +576,10 @@ def run(*, base, health_url, gh, now, fetch=http_json, log=print, dry_run=False)
     else:
         findings += [stale_digest(bundle, health, now), cap(health)]
     if standing is not None:
-        findings += obligations(standing, open_keys)
+        findings.append(evaluation(standing, bundle, now))
+        when = evaluated_at(standing, bundle)
+        findings += obligations(standing, open_keys,
+                                current=lambda row: row_current(row, when, now))
 
     for f in findings:
         if f.status == UNKNOWN:
