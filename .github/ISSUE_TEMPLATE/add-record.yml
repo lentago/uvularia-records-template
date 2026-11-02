@@ -5,13 +5,26 @@ body:
   - type: markdown
     attributes:
       value: |
+        ## This repository is public
+
+        **Issues, branches, attachments and history here are visible to anyone
+        the moment you submit.** A draft is not private; approval only decides
+        what is published to the board. Submit only material already approved
+        for public disclosure. If a document is not cleared yet, keep it out of
+        this repository until it is, or redact it and get the redaction approved
+        by hand first. The CI privacy scan is a tripwire, not the first boundary.
+
+  - type: markdown
+    attributes:
+      value: |
         A **record** is one public document your organization has to show: a set
         of minutes, a meeting notice, a policy, a filing. Fill this in and attach
         the original file. A workflow turns it into a branch and a pull request
         with the file saved and checked — you just review and merge.
 
-        The record is created as a **draft**. It does not publish until a
-        reviewer approves it on the pull request. Takes about a minute.
+        The record is created as a **draft**. It is not published to the board
+        until a reviewer approves it on the pull request, but your issue and
+        file are public from now. Takes about a minute.
 
   - type: dropdown
     id: type

@@ -21,8 +21,9 @@ is written. Nothing is posted until the checks on the pull request pass.
   and when. The board is built from these.
 - [`receipts/`](receipts/README.md) — one stamped, append-only receipt per
   publish.
-- `intake/` — scratch space for drafts. **Never published**, and never linked to
-  from a published page (the checks enforce both). See its own README.
+- `intake/` — scratch space for drafts. **Never published** to the board, and
+  never linked to from a published page (the checks enforce both), but visible to
+  anyone in this public repository. See its own README.
 - [`templates/record.md`](templates/record.md) — duplicate this to add a record.
 - [`core/`](core/README.md) — the validator, the evaluator, and the bundle
   builder your checks run. Vendored; see [the README](README.md).

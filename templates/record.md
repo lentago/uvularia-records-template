@@ -14,8 +14,10 @@ title: "Board meeting minutes, 15 January 2026"
 # One of: minutes, notice, agenda, policy, bylaw, filing, report, announcement, faq
 # It must match the folder you put this file in (records/minutes/ here).
 type: minutes
-# draft while you work; approved once the board has approved it. Only approved,
-# public records are published. Later: superseded (replaced) or retracted.
+# draft while you work; approved once the board has approved it. Only approved
+# records are published (to the board, the corpus, the feed and the site); a
+# draft is still visible in this public repository. Later: superseded (replaced)
+# or retracted.
 status: approved
 # Always public — this repo holds only public records and the check enforces it.
 visibility: public
