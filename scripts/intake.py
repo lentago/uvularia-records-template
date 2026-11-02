@@ -245,8 +245,9 @@ def render_record(fields, source=None, attachment_found=False):
     fm = [
         "---",
         "# Scaffolded by the intake workflow from an \"Add a record\" issue.",
-        "# It is a DRAFT: it does not publish until a reviewer sets",
-        "# 'status: approved' and the 'approved' date on the pull request.",
+        "# It is a DRAFT: it is not published (board, corpus, feed, site) until a",
+        "# reviewer sets 'status: approved' and the 'approved' date on the pull",
+        "# request. This repository is public, so the draft is already visible.",
         "# Every field is defined in core/schema/record.schema.json.",
         f"id: {fields['id']}",
         f"title: {_yaml_str(fields['title'])}",
@@ -296,7 +297,7 @@ def render_record(fields, source=None, attachment_found=False):
 def download(url, dest, timeout=30):
     """Fetch ``url`` into ``dest``. Return None on success, else a reason.
 
-    Private-repo attachment URLs can require a browser session the workflow does
+    An attachment URL can need a signed-in browser session the workflow does
     not have; any failure returns a human reason instead of raising, so the
     workflow can still open the pull request and say the file needs adding by
     hand (never a silent miss).
