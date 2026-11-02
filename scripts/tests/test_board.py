@@ -5,7 +5,9 @@ Each test builds a small vault and artifacts directory (what the publish job's
 Held here: every state renders as a word and its colour; a missing or unreadable
 ``standing.json`` renders a page that says "no data" with no rows, and the script
 still exits 0; text from files is escaped; a satisfying record links to its file
-on GitHub; "last published" is the newest receipt's server-side time. Stdlib only,
+on GitHub; "last published" is the newest receipt's server-side time; a board
+evaluated more than a day ago shows every row as "unknown", never its last
+colour; the page's only script is inline and can only hide colours. Stdlib only,
 offline, name-free.
 
     python3 -m unittest discover -s templates/records/scripts/tests -p "test_*.py"
@@ -29,6 +31,7 @@ import board  # noqa: E402
 
 REPO = "Example-Org/example-records"
 DIGEST = "a" * 64
+FRESH_NOW = "2026-10-03T13:00:00Z"    # an hour after the fixture's publish
 
 ROWS = [
     {"id": "annual-report", "state": "green", "satisfied_by": "2026-01-15-annual-report",
@@ -93,13 +96,17 @@ class BoardCase(unittest.TestCase):
         bundle = {"digest": digest, "published_at": "2026-10-03T12:00:00Z", "records": records}
         (self.out / f"corpus-{digest}.json").write_text(json.dumps(bundle), encoding="utf-8")
 
-    def page(self, repo=REPO):
+    def page(self, repo=REPO, now=FRESH_NOW):
         """Run the CLI as the workflow does; return the page it wrote."""
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             code = board.main(["--vault", str(self.vault), "--artifacts", str(self.out),
-                               "--repo", repo])
+                               "--repo", repo, "--now", now])
         self.assertEqual(code, 0)
         return (self.out / "index.html").read_text(encoding="utf-8")
+
+    def tbody(self, page):
+        m = re.search(r"<tbody>(.*?)</tbody>", page, re.S)
+        return m.group(1) if m else ""
 
     def body_rows(self, page):
         m = re.search(r"<tbody>(.*?)</tbody>", page, re.S)
@@ -129,6 +136,111 @@ class EveryStateIsAWordAndAColour(BoardCase):
         rows = self.body_rows(self.page())
         self.assertIn("<td>2027-01-15</td>", rows[0])
         self.assertIn('<td><span class="muted">none</span></td>', rows[3])
+
+
+def visible(fragment):
+    """The fragment with every ``hidden`` element removed: what a reader sees."""
+    out, depth, skip = [], 0, None
+    for tok in re.split(r"(<[^>]+>)", fragment):
+        if skip is not None:
+            if tok.startswith("</"):
+                depth -= 1
+                if depth == skip:
+                    skip = None
+            elif tok.startswith("<") and not tok.endswith("/>"):
+                depth += 1
+            continue
+        if tok.startswith("<") and not tok.startswith("</") and " hidden=" in tok:
+            skip = depth
+            depth += 1
+            continue
+        if tok.startswith("</"):
+            depth -= 1
+        elif tok.startswith("<") and not tok.endswith("/>") and not tok.startswith("<!"):
+            depth += 1
+        out.append(tok)
+    return "".join(out)
+
+
+class FreshAndStaleBoards(BoardCase):
+    """A row is true only as of when it was evaluated (core/evaluate.md)."""
+
+    def stamped(self, evaluated_at):
+        self.write_standing([dict(r, evaluated_at=evaluated_at) for r in ROWS])
+
+    def test_fresh_board_shows_its_colours_and_when_it_was_evaluated(self):
+        self.stamped("2026-10-03T12:00:00Z")
+        page = self.page(now="2026-10-04T11:59:00Z")       # 23 h 59 min later
+        shown = visible(page)
+        self.assertIn('<time datetime="2026-10-03T12:00:00Z">3 October 2026, 12:00 UTC</time>', page)
+        self.assertIn("Evaluated ", page)
+        self.assertIn(">green</span>", shown)
+        self.assertNotIn(">unknown</span>", visible(self.tbody(page)))
+        self.assertNotIn("A row marked unknown", shown)
+
+    def test_stale_board_shows_unknown_and_never_its_last_green(self):
+        self.stamped("2026-10-03T12:00:00Z")
+        page = self.page(now="2026-10-04T12:00:01Z")        # just past the day
+        rows = [visible(r) for r in self.body_rows(page)]
+        for row, was in zip(rows, ["green", "amber", "red", "no data"]):
+            with self.subTest(was=was):
+                self.assertIn(">unknown</span>", row)
+                self.assertIn(f"(was {was})", row)
+                self.assertNotIn('style="background:#1b7a3d"', row)
+        self.assertIn("since the board was last re-checked, at 3 October 2026, 12:00 UTC", visible(page))
+
+    def test_the_rows_own_stamp_wins_over_the_publish_time(self):
+        # Published long ago, re-evaluated an hour ago: fresh.
+        self.stamped("2026-11-01T06:17:00Z")
+        page = self.page(now="2026-11-01T07:17:00Z")
+        self.assertIn(">green</span>", visible(page))
+        self.assertIn('datetime="2026-11-01T06:17:00Z"', page)
+
+    def test_rows_without_a_stamp_are_dated_by_the_publish(self):
+        # An older core: no evaluated_at, so the bundle's published_at stands in.
+        fresh = self.page(now="2026-10-03T13:00:00Z")
+        self.assertIn(">green</span>", visible(fresh))
+        stale = self.page(now="2026-10-05T00:00:00Z")
+        self.assertNotIn('style="background:#1b7a3d"', visible(self.tbody(stale)))
+
+    def test_nothing_says_when_means_unknown(self):
+        (self.out / f"corpus-{DIGEST}.json").unlink()
+        for f in (self.out / "receipts").iterdir():
+            f.unlink()
+        page = self.page()
+        self.assertIn("Evaluated: unknown.", page)
+        self.assertNotIn('style="background:#1b7a3d"', visible(self.tbody(page)))
+
+    def test_a_row_lapses_on_its_own_valid_until(self):
+        # Evaluated in the evening: the green row would turn amber at midnight,
+        # so it lapses then; the others hold for the day.
+        rows = [dict(r, evaluated_at="2026-10-03T18:17:00Z", valid_until="2026-10-04T18:17:00Z")
+                for r in ROWS]
+        rows[0]["valid_until"] = "2026-10-04T00:00:00Z"
+        self.write_standing(rows)
+        before = [visible(r) for r in self.body_rows(self.page(now="2026-10-03T23:59:59Z"))]
+        self.assertIn(">green</span>", before[0])
+        after_page = self.page(now="2026-10-04T00:00:01Z")
+        after = [visible(r) for r in self.body_rows(after_page)]
+        self.assertIn(">unknown</span>", after[0])
+        self.assertIn("(was green)", after[0])
+        self.assertNotIn('style="background:#1b7a3d"', after[0])
+        self.assertIn(">amber</span>", after[1], "a row still inside its valid_until keeps its colour")
+        self.assertIn("A row marked unknown", visible(after_page))
+
+    def test_a_current_page_carries_both_states_for_the_script(self):
+        # The script can only swap colour for "unknown": both are in the page,
+        # the unknown one hidden, and each row says until when it is current.
+        self.stamped("2026-10-03T12:00:00Z")
+        page = self.page()
+        self.assertEqual(page.count('class="row-state" data-valid-until="2026-10-04T12:00:00Z"'), 4,
+                         "a row from an older core lapses a day after it was evaluated")
+        self.assertEqual(page.count('class="stale" hidden="hidden"'), 4)
+        self.assertIn('class="notice stale" hidden="hidden"', page)
+        script = re.search(r"<script>(.*?)</script>", page, re.S).group(1)
+        # It only ever hides a colour and reveals "unknown" and the notice.
+        self.assertEqual(re.findall(r"\.hidden = (\w+)", script), ["true", "false", "false"])
+        self.assertIn('querySelector(".live").hidden = true', script)
 
 
 class MissingStandingSaysNoData(BoardCase):
@@ -187,7 +299,7 @@ class TextIsEscaped(BoardCase):
         self.assertIn("<h1>Parks &amp; &lt;b&gt;Trails&lt;/b&gt;</h1>", page)
         self.assertIn("Report &lt;script&gt;alert(1)&lt;/script&gt;", page)
         self.assertIn("Budget &lt; 5% &quot;draft&quot;", page)
-        self.assertNotIn("<script", page)
+        self.assertEqual(page.count("<script"), 1, "only the page's own inline script")
         self.assertNotIn("<b>", page)
 
 
@@ -255,7 +367,9 @@ class PlainAndAccessible(BoardCase):
         self.assertEqual(tags["html"].get("lang"), "en")
         self.assertIn("width=device-width", self.page())
         names = {t for t, _ in checker.tags}
-        self.assertFalse(names & {"script", "link", "img", "iframe"}, names)
+        self.assertFalse(names & {"link", "img", "iframe"}, names)
+        self.assertEqual([t for t, _ in checker.tags if t == "script"], ["script"],
+                         "exactly one script, the inline freshness check")
         for tag, attrs in checker.tags:
             self.assertNotIn("src", attrs)
             if tag == "th":
@@ -269,7 +383,7 @@ class PlainAndAccessible(BoardCase):
             c = [int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
             c = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
             return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
-        for state, (_, colour, _) in board.STATES.items():
+        for state, (_, colour, _) in [*board.STATES.items(), ("unknown", board.UNKNOWN)]:
             with self.subTest(state=state):
                 self.assertGreaterEqual(1.05 / (luminance(colour) + 0.05), 4.5)
 

@@ -10,7 +10,9 @@
 # and a new receipt, and overwrites standing.json / feed.xml / corpus-latest.json
 # / index.html.
 # It is never force-pushed. Receipts accumulate there so the next publish can
-# date every record by the server-side time it first went public.
+# date every record by the server-side time it first went public. Between
+# publishes, re-evaluate.yml rewrites standing.json and index.html on a schedule
+# (a row is only true as of when it was evaluated); it never writes a receipt.
 #
 # Server-side time (invariant 4): PUBLISHED_AT is this run's own clock, taken
 # once at the top. No author commit time is ever used as "posted at".
@@ -78,28 +80,42 @@ jobs:
       - name: Write the public board page
         run: python3 scripts/board.py --vault . --artifacts _out --out _out/index.html
 
-      - name: Lay the artifacts onto the published branch (append, never overwrite a receipt)
+      - name: Lay the artifacts onto the published branch and push (append, never overwrite a receipt)
         run: |
           set -euo pipefail
-          mkdir -p _pub/receipts
-          cp _out/corpus-*.json _pub/                     # new, digest-named; accumulates
-          cp _out/corpus-*.json _pub/corpus-latest.json   # pointer to the newest bundle
-          cp _out/standing.json _pub/standing.json        # overwritten each publish
-          cp _out/feed.xml      _pub/feed.xml             # overwritten each publish
-          cp _out/index.html    _pub/index.html           # the public board; overwritten each publish
-          cp -n _out/receipts/*.md _pub/receipts/         # new receipt; never replaces an old one (names carry the publish instant; -n is the second guard)
-          touch _pub/.nojekyll                            # Pages serves the branch verbatim: no Jekyll build, no .md rewritten to .html (#73)
+          # The scheduled re-evaluate workflow also pushes here, rewriting only
+          # standing.json and index.html. If it lands between this run's checkout
+          # and its push, the push is refused: start again from the new tip. This
+          # run's standing includes the records it just published, so it wins.
+          for attempt in 1 2 3; do
+            mkdir -p _pub/receipts
+            cp _out/corpus-*.json _pub/                     # new, digest-named; accumulates
+            cp _out/corpus-*.json _pub/corpus-latest.json   # pointer to the newest bundle
+            cp _out/standing.json _pub/standing.json        # overwritten each publish
+            cp _out/feed.xml      _pub/feed.xml             # overwritten each publish
+            cp _out/index.html    _pub/index.html           # the public board; overwritten each publish
+            cp -n _out/receipts/*.md _pub/receipts/         # new receipt; never replaces an old one (names carry the publish instant; -n is the second guard)
+            touch _pub/.nojekyll                            # Pages serves the branch verbatim: no Jekyll build, no .md rewritten to .html (#73)
 
-      - name: Commit and push the published branch
-        run: |
-          set -euo pipefail
-          git -C _pub add -A
-          if git -C _pub diff --cached --quiet; then
-            echo "Nothing changed since the last publish."
-            exit 0
-          fi
-          git -C _pub commit -m "Publish ${PUBLISHED_AT} (${GITHUB_SHA::7})"
-          git -C _pub push origin published
+            git -C _pub add -A
+            if git -C _pub diff --cached --quiet; then
+              echo "Nothing changed since the last publish."
+              exit 0
+            fi
+            git -C _pub commit -m "Publish ${PUBLISHED_AT} (${GITHUB_SHA::7})"
+            if git -C _pub push origin published; then
+              exit 0
+            fi
+            git -C _pub fetch --no-tags origin published
+            if git -C _pub merge-base --is-ancestor origin/published HEAD; then
+              echo "::error title=publish::could not push to the published branch, and it has not moved; see the push error above"
+              exit 1
+            fi
+            echo "::notice title=publish::the published branch moved during this run (attempt ${attempt}); laying this publish onto the new tip"
+            git -C _pub reset --hard --quiet origin/published
+          done
+          echo "::error title=publish::the published branch kept moving; could not push after 3 attempts"
+          exit 1
 
       - name: Attest the corpus bundle's provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0

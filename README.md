@@ -60,8 +60,9 @@ no account to read it.
 1. Open `https://<your-org>.github.io/<repo>/`. GitHub Pages can take a few
    minutes to serve the first publish.
 2. Check the top of the page: your organization's name (the first heading of
-   [`index.md`](index.md)) and **Last published**, the time the publish workflow
-   ran. That is the same server-side time as the receipt it links to.
+   [`index.md`](index.md)), **Last published**, the time the publish workflow
+   ran (the same server-side time as the receipt it links to), and **Evaluated**,
+   when the board was last judged.
 3. Read the table: one row per obligation, with its state in words (**green**,
    **amber**, **red**, or **no data**), its deadline, and the record that satisfies
    it, linked to the file in this repository. Below it are your most recent
@@ -71,8 +72,27 @@ Every publish rewrites the page from that publish's
 [`standing.json`](core/schema/standing.schema.json), so it is never out of step
 with the board data. If the standings can't be read, the page says the board has
 no data. It never shows a row as met without the data behind it. The page is
-written by [`scripts/board.py`](scripts/board.py). It is plain HTML with no
-scripts, and it reads well on a phone.
+written by [`scripts/board.py`](scripts/board.py). It is plain HTML with one small
+inline script, and it reads well on a phone.
+
+A row is true only as of when it was evaluated. With nothing new published, an
+amber still turns red the day its deadline passes, so the
+[`re-evaluate`](.github/workflows/re-evaluate.yml) workflow re-judges the board four
+times a day against what you last published and rewrites `standing.json` and this
+page. It writes no receipt: receipts record what was published, and the board is
+worked out from them. Each row says until when it stays current: the next UTC
+midnight if it would change then, otherwise **24 hours** after it was evaluated.
+A row past that shows as **unknown**, with the colour it last had in brackets,
+until the next run re-checks it, and the page says when the board was last
+checked. The page checks this when it is written, and the inline script checks it
+again against the reader's clock, so a page left behind by a stopped schedule
+still goes to unknown. The script can only hide a colour, never show one. Section
+6 says how you hear about it.
+
+> **Heads up — keep the deadlines that matter on a calendar too.** The board tells
+> you what this vault holds and when it was posted. It cannot see whether a filing
+> reached the agency. Put important deadlines on a person's calendar, and keep the
+> agency's own filing receipt.
 
 > **The site is optional.** The `<org>-site` template builds a second, branded
 > site from the same published files. It adds your own look, a page per record,
@@ -300,6 +320,7 @@ The [`watch`](.github/workflows/watch.yml) workflow runs
 | an obligation is amber or red | it turns amber or red on the board (one issue per obligation; if it goes from amber to red, the same issue is updated and gets a comment) | it is green again |
 | the Ask box serves an old copy | the box is still answering from an older corpus more than 30 minutes after a publish | the box serves the published corpus |
 | the daily cap is past 80 % | today's questions reach 80 % of the cap | today's use is under 80 % again, normally at midnight UTC |
+| the board has not been re-checked | the published board was evaluated more than 24 hours ago: the `re-evaluate` workflow has stopped or is failing | the board has been re-checked |
 
 Each issue says in plain words what happened and what to do. Every issue has the
 label `uvularia-watch` and two hidden lines at the bottom. Leave those lines alone:
@@ -319,14 +340,24 @@ Actions → Variables** and add:
 
 > **Heads up — the watch never closes on missing data.** An issue closes only when
 > the data shows the problem is gone. If the board shows *no data* for an
-> obligation, or a file can't be read, the issue stays open. If the published
-> files or the Ask box can't be reached at all, the run fails, and GitHub emails
-> you about the failed run.
+> obligation, or a file can't be read, the issue stays open. A green row that is
+> past its `valid_until` is not current, so it closes nothing either. If the published files or the Ask box can't be reached at all, the run
+> fails, and GitHub emails you about the failed run.
 
 > **Heads up — GitHub pauses schedules on quiet repositories.** On a public
 > repository with no commits for 60 days, GitHub turns scheduled workflows off and
-> emails you first. Merging a record turns it back on, or you can click
-> **Enable workflow** on the Actions tab.
+> emails you first. That includes **re-evaluate** and **watch**: once both are off,
+> nothing here can tell you, and the board page itself is what goes to unknown.
+> Merging a record turns them back on, or you can click **Enable workflow** on
+> each one's page under the Actions tab.
+
+Every alert here goes through GitHub: an issue, its email, a failed run. If GitHub
+pauses the schedules, those stop together. A channel outside GitHub would need
+three things: something that runs on its own clock (an uptime checker, or a Grafana
+Cloud alert on the events in section 5), a check it can make from outside (fetch
+`standing.json` and compare its `evaluated_at` with the time now), and somewhere to
+send it that a person reads (email or a text). The template does not set that up
+yet.
 
 **How you know it worked:** on the **Actions** tab, open **watch** and click **Run
 workflow**. The run passes, and its log ends with `Nothing to open, update, or
@@ -345,8 +376,8 @@ appends to the `published` branch:
 | Artifact | What it is |
 |---|---|
 | `corpus-<digest>.json` | the published records, in the Ask engine's entry shape — [schema](core/schema/bundle.schema.json) |
-| `index.html` | the public board page, rewritten each publish from `standing.json` (see section 2) |
-| `standing.json` | the live board data, one row per obligation — [schema](core/schema/standing.schema.json) |
+| `index.html` | the public board page, rewritten from `standing.json` on each publish and each re-evaluation (see section 2) |
+| `standing.json` | the live board data, one row per obligation — [schema](core/schema/standing.schema.json); also rewritten four times a day by [`re-evaluate.yml`](.github/workflows/re-evaluate.yml), with no receipt |
 | `feed.xml` | an Atom feed of your announcements |
 | `.nojekyll` | an empty marker that tells GitHub Pages to serve the branch exactly as written, with no Jekyll build; without it Pages rewrites the `.md` receipts to `.html` |
 | `receipts/<YYYY-MM-DDTHHMMSSZ>-<digest>.md` | the stamped, append-only receipt — [schema](core/schema/receipt.schema.json) |

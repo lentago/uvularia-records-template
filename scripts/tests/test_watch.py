@@ -201,6 +201,63 @@ class ObligationTest(unittest.TestCase):
         self.assertEqual(f.status, watch.UNKNOWN)
 
 
+class EvaluationTest(unittest.TestCase):
+    """The board is current for a day after it was evaluated (FRESH_AFTER)."""
+    bundle = fx("corpus-latest.json")          # published 2026-10-04T11:00:00Z
+
+    def stamped(self, name, evaluated_at):
+        return [dict(r, evaluated_at=evaluated_at) for r in fx(name)]
+
+    def test_the_stamped_fixture_validates(self):
+        schema = json.loads((CORE_SCHEMA / "standing.schema.json").read_text())
+        rows = self.stamped("standing-all-green.json", "2026-10-04T06:17:00Z")
+        self.assertEqual(validate(schema, rows, schema), [])
+
+    def test_within_a_day_clears(self):
+        rows = self.stamped("standing-all-green.json", "2026-10-03T12:00:00Z")
+        f = watch.evaluation(rows, self.bundle, NOW)            # exactly 24 h
+        self.assertEqual(f.status, watch.CLEAR)
+
+    def test_past_a_day_is_active_and_says_what_to_do(self):
+        rows = self.stamped("standing-all-green.json", "2026-10-03T11:59:59Z")
+        f = watch.evaluation(rows, self.bundle, NOW)
+        self.assertEqual((f.key, f.status, f.state), ("board-not-rechecked", watch.ACTIVE, "stale"))
+        self.assertIn("2026-10-03T11:59:59Z", f.body)
+        self.assertIn("Enable workflow", f.body)
+        self.assertIn("calendar", f.body)
+
+    def test_the_rows_stamp_wins_over_the_publish_time(self):
+        # Published 2026-10-04T11:00Z, but evaluated two days before NOW: stale.
+        rows = self.stamped("standing-all-green.json", "2026-10-02T12:00:00Z")
+        self.assertEqual(watch.evaluation(rows, self.bundle, NOW).status, watch.ACTIVE)
+
+    def test_rows_without_a_stamp_are_dated_by_the_publish(self):
+        rows = fx("standing-all-green.json")                    # an older core
+        self.assertEqual(watch.evaluation(rows, self.bundle, NOW).status, watch.CLEAR)
+        later = datetime(2026, 10, 6, 12, 0, tzinfo=timezone.utc)
+        self.assertEqual(watch.evaluation(rows, self.bundle, later).status, watch.ACTIVE)
+
+    def test_nothing_to_date_it_by_is_unknown(self):
+        rows = fx("standing-all-green.json")
+        self.assertEqual(watch.evaluation(rows, None, NOW).status, watch.UNKNOWN)
+        self.assertEqual(watch.evaluation([], self.bundle, NOW).status, watch.UNKNOWN)
+
+    def test_a_stale_green_does_not_close_an_obligation_issue(self):
+        (f,) = watch.obligations(fx("standing-all-green.json")[:1],
+                                 {"obligation:annual-report"}, current=lambda row: False)
+        self.assertEqual(f.status, watch.UNKNOWN)
+
+    def test_a_row_is_current_until_its_own_valid_until(self):
+        evaluated = datetime(2026, 10, 3, 18, 17, tzinfo=timezone.utc)
+        row = {"valid_until": "2026-10-04T00:00:00Z"}
+        self.assertTrue(watch.row_current(row, evaluated, datetime(2026, 10, 4, 0, 0, tzinfo=timezone.utc)))
+        self.assertFalse(watch.row_current(row, evaluated, datetime(2026, 10, 4, 0, 0, 1, tzinfo=timezone.utc)))
+        # An older core's row: a day after the board was evaluated.
+        self.assertTrue(watch.row_current({}, evaluated, datetime(2026, 10, 4, 18, 17, tzinfo=timezone.utc)))
+        self.assertFalse(watch.row_current({}, evaluated, datetime(2026, 10, 4, 18, 18, tzinfo=timezone.utc)))
+        self.assertFalse(watch.row_current({}, None, evaluated))
+
+
 # --------------------------------------------------------------------------- #
 # End to end against the in-memory GitHub: open, dedupe, update, close.        #
 # --------------------------------------------------------------------------- #
@@ -258,6 +315,17 @@ class ReconcileTest(unittest.TestCase):
         self.assertEqual(code, 1, "unreadable data fails the run")
         self.assertEqual(gh.open_keys(), ["cap", "obligation:annual-report"])
         self.assertTrue(any(line.startswith("::error") for line in logs))
+
+    def test_a_board_not_rechecked_opens_one_issue_and_closes_when_it_is(self):
+        gh = FakeGitHub()
+        later = datetime(2026, 10, 6, 12, 0, tzinfo=timezone.utc)   # two days on
+        run(gh, standing="standing-one-amber.json", health="health-current.json")
+        self.assertEqual(gh.open_keys(), ["obligation:annual-report"])
+        run(gh, standing="standing-all-green.json", health="health-current.json", now=later)
+        self.assertEqual(gh.open_keys(), ["board-not-rechecked", "obligation:annual-report"],
+                         "a stale green neither closes the amber issue nor passes as current")
+        run(gh, standing="standing-all-green.json", health="health-current.json")
+        self.assertEqual(gh.open_keys(), [])
 
     def test_cap_reopens_as_a_new_issue_the_next_day(self):
         gh = FakeGitHub()

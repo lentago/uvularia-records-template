@@ -15,6 +15,8 @@ What goes on the page:
   * the vault's title, from the first ``# `` heading of ``index.md``;
   * "last published", from the newest receipt's ``published_at``, the
     server-side time the publish workflow stamped (never an author's clock);
+  * "evaluated", the ``evaluated_at`` on the standing rows: when the board was
+    last judged, by a publish or by the scheduled re-evaluate workflow;
   * one row per obligation in ``standing.json``: its title, its state as a word
     on a colour, its deadline, and the record that satisfies it, linked to the
     record file on GitHub;
@@ -26,7 +28,17 @@ words that the board has no data, with no rows. A ``no-data`` row says "no
 data". On any bad input the script still writes a page and exits 0; it never
 raises.
 
-The page has no JavaScript and no external files. Its CSS is inline, it fits a
+**Never a stale green.** A row is true only as of when it was evaluated, and
+each row says until when it stays current (``valid_until``: the next UTC midnight
+if it would change then, otherwise a day after it was evaluated). A row past that
+instant when the page is written shows as "unknown", with the colour it last had
+in brackets. A page can also go stale after it is written, if the schedule stops,
+so the page carries one small inline script that makes the same check against
+the reader's clock, row by row. The script only ever hides colours; it never
+shows one the page did not already show. Without JavaScript the page still reads
+correctly and says when it was evaluated.
+
+The page has no external files. Its CSS and its one script are inline, it fits a
 phone screen, and every state is a word as well as a colour.
 
 The repository it links to (``owner/name``) comes from ``GITHUB_REPOSITORY``,
@@ -42,6 +54,7 @@ import json
 import os
 import re
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -62,6 +75,12 @@ STATES = {
     "red": ("red", "#b3261e", "the deadline passed without a timely posting"),
     "no-data": ("no data", "#595959", "nothing to judge yet; this is not a pass"),
 }
+
+# Not a standing state: what a row shows once it is past its valid_until (or,
+# for an older core, a day after the board was evaluated). It hides the last
+# colour rather than vouch for it.
+UNKNOWN = ("unknown", "#595959", "may have changed since the board was last re-checked; this is not a pass")
+FRESH = timedelta(hours=evaluate.FRESH_HOURS)
 
 
 # --------------------------------------------------------------------------- #
@@ -129,8 +148,8 @@ def read_receipt(artifacts):
     return newest
 
 
-def read_corpus(artifacts, receipt):
-    """The corpus records, or None. ``corpus-latest.json`` when it is there (the
+def read_bundle(artifacts, receipt):
+    """The corpus bundle, or None. ``corpus-latest.json`` when it is there (the
     published branch); otherwise the ``corpus-<digest>.json`` the newest receipt
     names (the publish job's own output directory)."""
     names = ["corpus-latest.json"]
@@ -142,8 +161,47 @@ def read_corpus(artifacts, receipt):
         except _READ_ERRORS:
             continue
         if _matches("bundle", bundle):
-            return bundle["records"]
+            return bundle
     return None
+
+
+def read_corpus(artifacts, receipt):
+    """The corpus records, or None (see ``read_bundle``)."""
+    bundle = read_bundle(artifacts, receipt)
+    return bundle["records"] if bundle else None
+
+
+def evaluated_instant(rows, bundle, receipt):
+    """When the board was last evaluated, or None if nothing says.
+
+    The rows' own ``evaluated_at`` (the oldest, if they ever differ). A vault
+    whose core predates the field evaluated only when it published, so its rows
+    are dated by the bundle's ``published_at``, then by the newest receipt's."""
+    if rows:
+        stamps = [_when(r.get("evaluated_at")) for r in rows]
+        if all(stamps):
+            return min(stamps)
+    if bundle:
+        when = _when(bundle.get("published_at"))
+        if when:
+            return when
+    return receipt[2] if receipt else None
+
+
+def row_lapse(row, evaluated):
+    """When ``row`` stops being current, or None if nothing says.
+
+    Its own ``valid_until``; for a row from a core that predates the field, a day
+    after the board was evaluated (``evaluated_instant``)."""
+    lapse = _when(row.get("valid_until"))
+    if lapse:
+        return lapse
+    return evaluated + FRESH if evaluated else None
+
+
+def is_stale(lapse, now):
+    """True when the row's lapse has passed, or nobody knows when it lapses."""
+    return lapse is None or now > lapse
 
 
 def read_obligation_titles(vault):
@@ -190,8 +248,28 @@ def github_url(repo, ref, path):
 
 
 def state_badge(state):
-    word, colour, _ = STATES.get(state, STATES["no-data"])
+    word, colour, _ = UNKNOWN if state == "unknown" else STATES.get(state, STATES["no-data"])
     return el("span", word, class_="state", style=f"background:{colour}")
+
+
+def _words(when):
+    return f"{when.day} {when:%B %Y, %H:%M} UTC"
+
+
+def state_cell(state, lapse, now):
+    """The row's state, and the "unknown" it turns into once the row lapses.
+
+    Both are in the page; ``hidden`` picks one. A row already lapsed when the page
+    is written shows only "unknown". A current row shows its colour, and the
+    inline script swaps it for "unknown" if the reader opens the page after
+    ``data-valid-until``."""
+    stale = is_stale(lapse, now)
+    word = STATES.get(state, STATES["no-data"])[0]
+    live = el("span", state_badge(state), class_="live", hidden="hidden" if stale else None)
+    gone = el("span", state_badge("unknown"), " ", el("span", f"(was {word})", class_="muted"),
+              class_="stale", hidden=None if stale else "hidden")
+    return el("td", live, gone, class_="row-state",
+              data_valid_until=evaluate.format_instant(lapse) if lapse else "")
 
 
 def record_link(record_id, corpus_by_id, repo):
@@ -205,7 +283,7 @@ def record_link(record_id, corpus_by_id, repo):
     return el("a", text, href=url) if url else el("code", record_id)
 
 
-def board_section(rows, titles, corpus_by_id, repo):
+def board_section(rows, titles, corpus_by_id, repo, evaluated=None, now=None):
     if rows is None:
         return el("section",
                   el("h2", "Is it posted?"),
@@ -217,15 +295,26 @@ def board_section(rows, titles, corpus_by_id, repo):
                   el("h2", "Is it posted?"),
                   el("p", "No posting obligations are declared in this vault yet.",
                      class_="notice"))
+    now = now or datetime.now(timezone.utc)
+    lapses = [row_lapse(r, evaluated) for r in rows]
     body = [el("tr",
                el("th", titles.get(r["id"]) or r["id"], scope="row"),
-               el("td", state_badge(r["state"])),
+               state_cell(r["state"], lapse, now),
                el("td", r["deadline"] or el("span", "none", class_="muted")),
                el("td", record_link(r["satisfied_by"], corpus_by_id, repo)))
-            for r in rows]
+            for r, lapse in zip(rows, lapses)]
     legend = [el("li", state_badge(s), " ", meaning) for s, (_, _, meaning) in STATES.items()]
+    legend.append(el("li", state_badge("unknown"), " ", UNKNOWN[2]))
+    since = _words(evaluated) if evaluated else "an unknown time"
+    any_stale = any(is_stale(lapse, now) for lapse in lapses)
+    warning = el("p", state_badge("unknown"),
+                 " A row marked unknown may have changed since the board was last "
+                 f"re-checked, at {since}. The colour in brackets is what it showed then. "
+                 "Nothing marked unknown is shown as met.",
+                 class_="notice stale", hidden=None if any_stale else "hidden")
     return el("section",
               el("h2", "Is it posted?"),
+              warning,
               el("div",
                  el("table",
                     el("caption", "One row per posting obligation."),
@@ -233,7 +322,8 @@ def board_section(rows, titles, corpus_by_id, repo):
                                            ("Obligation", "State", "Deadline", "Satisfied by")))),
                     el("tbody", *body)),
                  class_="scroll"),
-              el("ul", *legend, class_="legend"))
+              el("ul", *legend, class_="legend"),
+              id="board")
 
 
 def recent_section(corpus, repo):
@@ -258,12 +348,40 @@ def published_line(receipt, repo):
         return el("p", "Last published: unknown. No publish receipt could be read.")
     name, data, when = receipt
     stamp = data["published_at"]
-    words = f"{when.day} {when:%B %Y, %H:%M} UTC"
-    line = join("Last published ", el("time", words, datetime=stamp), ".")
+    line = join("Last published ", el("time", _words(when), datetime=stamp), ".")
     url = github_url(repo, "published", f"receipts/{name}")
     if url:
         line = join(line, " ", el("a", "Read the receipt", href=url), ".")
     return el("p", line)
+
+
+def evaluated_line(evaluated):
+    if evaluated is None:
+        return el("p", "Evaluated: unknown. Nothing says when this board was last checked.")
+    stamp = evaluate.format_instant(evaluated)
+    return el("p", "Evaluated ", el("time", _words(evaluated), datetime=stamp),
+              ". Each row is true as of then. The board is re-checked four times a day, "
+              "and on every publish.")
+
+
+# Runs once, on load. Each row past its data-valid-until by the reader's clock (or
+# with no readable instant) has its colour hidden and "unknown" shown, and the
+# notice appears. It never does the reverse.
+SCRIPT = """
+(function () {
+  var board = document.getElementById("board");
+  if (!board) return;
+  var cells = board.querySelectorAll("[data-valid-until]"), lapsed = false;
+  for (var i = 0; i < cells.length; i++) {
+    var until = Date.parse(cells[i].getAttribute("data-valid-until") || "");
+    if (!isNaN(until) && Date.now() <= until) continue;
+    lapsed = true;
+    cells[i].querySelector(".live").hidden = true;
+    cells[i].querySelector(".stale").hidden = false;
+  }
+  if (lapsed) board.querySelector(".notice.stale").hidden = false;
+})();
+"""
 
 
 CSS = """
@@ -284,15 +402,16 @@ tbody th { font-weight: 600; }
 .muted { color: #595959; }
 .notice { padding: 0.75rem; border: 1px solid #d0d7de; border-radius: 0.5rem; }
 .legend, .recent { padding-left: 0; list-style: none; }
+[hidden] { display: none !important; }
 .legend li, .recent li { margin: 0.4rem 0; }
 footer { margin-top: 2rem; font-size: 0.9rem; color: #595959; }
 """
 
 
-def render_page(title, rows, titles, corpus, receipt, repo):
+def render_page(title, rows, titles, corpus, receipt, repo, evaluated=None, now=None):
     corpus_by_id = {e["doc_id"]: e for e in corpus or []}
     footer = el("footer",
-                "Times are the server-side publish times in UTC. The data behind this page: ",
+                "Times are server-side times in UTC. The data behind this page: ",
                 el("a", "standing.json", href="standing.json"), ", ",
                 el("a", "feed.xml", href="feed.xml"), ", ",
                 el("a", "corpus-latest.json", href="corpus-latest.json"), ".")
@@ -307,21 +426,27 @@ def render_page(title, rows, titles, corpus, receipt, repo):
            el("main",
               el("h1", title),
               published_line(receipt, repo),
-              board_section(rows, titles, corpus_by_id, repo),
+              evaluated_line(evaluated),
+              board_section(rows, titles, corpus_by_id, repo, evaluated, now),
               recent_section(corpus, repo)),
-           footer),
+           footer,
+           el("script", Html(SCRIPT))),
         lang="en") + "\n")
 
 
-def build(vault, artifacts, repo):
+def build(vault, artifacts, repo, now=None):
     receipt = read_receipt(artifacts)
+    bundle = read_bundle(artifacts, receipt[1] if receipt else None)
+    rows = read_standing(artifacts)
     return render_page(
         title=read_title(vault),
-        rows=read_standing(artifacts),
+        rows=rows,
         titles=read_obligation_titles(vault),
-        corpus=read_corpus(artifacts, receipt[1] if receipt else None),
+        corpus=bundle["records"] if bundle else None,
         receipt=receipt,
-        repo=repo)
+        repo=repo,
+        evaluated=evaluated_instant(rows, bundle, receipt),
+        now=now)
 
 
 def main(argv=None):
@@ -332,10 +457,14 @@ def main(argv=None):
     p.add_argument("--out", help="where to write the page (default: <artifacts>/index.html)")
     p.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""),
                    help="owner/name for record links (default: $GITHUB_REPOSITORY)")
+    p.add_argument("--now", help="judge freshness as of this ISO time (default: now, UTC)")
     a = p.parse_args(argv)
+    now = _when(a.now) if a.now else None
+    if a.now and now is None:
+        p.error(f"could not parse --now value {a.now!r}")
     out = Path(a.out or Path(a.artifacts) / "index.html")
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(build(a.vault, a.artifacts, a.repo), encoding="utf-8")
+    out.write_text(build(a.vault, a.artifacts, a.repo, now=now), encoding="utf-8")
     print(f"board: wrote {out}")
     return 0
 
