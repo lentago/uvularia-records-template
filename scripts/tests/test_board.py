@@ -132,6 +132,17 @@ class EveryStateIsAWordAndAColour(BoardCase):
         self.assertIn('<th scope="row">Annual report filed</th>', rows[0])
         self.assertIn('<th scope="row">charity-filing</th>', rows[1])
 
+    def test_a_scope_note_sits_under_its_title(self):
+        # uvularia#116: a proxy rule says what it does not assert, beside its row.
+        path = self.vault / "obligations" / "annual-report.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["scope_note"] = "A 12-month reminder, not the <legal> due date."
+        path.write_text(json.dumps(data), encoding="utf-8")
+        rows = self.body_rows(self.page())
+        self.assertIn('<th scope="row">Annual report filed<span class="scope muted">'
+                      'A 12-month reminder, not the &lt;legal&gt; due date.</span></th>', rows[0])
+        self.assertNotIn('class="scope', rows[1], "a rule with no note shows none")
+
     def test_deadline_shown(self):
         rows = self.body_rows(self.page())
         self.assertIn("<td>2027-01-15</td>", rows[0])

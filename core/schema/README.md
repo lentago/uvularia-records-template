@@ -72,6 +72,7 @@ rules repo's `policy.yaml`.
 | `subjects` | Topics a breach of this rule should surface against in the Ask box. | Pack author | Missing subjects mean a breach never reaches a related answer. |
 | `source` | Citation string for what the rule encodes. | Pack author | Without a citation, no one can check the rule against the statute. |
 | `disclaimer_ref` | Pointer to the not-legal-advice disclaimer in `policy.yaml`. | Pack author | A missing reference lets a mechanical rule read as legal advice. |
+| `scope_note` | Optional. What the rule does **not** assert, in one plain sentence; the board shows it under the rule's title. | Pack author | A proxy rule (a 12-month reminder for a fixed statutory date) reads as legal standing when its row is green. |
 
 Exactly **one** timing kind must be present:
 
@@ -85,8 +86,12 @@ Exactly **one** timing kind must be present:
   - **`exclude_dates: [YYYY-MM-DD, …]`** — hours on these dates don't count
     either (legal holidays). This is data, not code: a pack ships the list,
     one `holidays/<year>.json` file per year, and the rule carries the dates.
-    A year missing from the list is counted as ordinary days, so the deadline
-    is *later* than the law's. Add next year's holidays before it begins.
+  - **`calendar_years: [YYYY, …]`** — the years `exclude_dates` lists
+    completely. A window that reaches any other year is **no-data**: without a
+    list, that year's holidays would count as ordinary days and the deadline
+    would come out *later* than the law's. `obligations/check_packs.py` fails
+    when the years do not match the `holidays/` files, and from 1 October when
+    next year's file is missing.
 - **`lag`** — posted no later than this many days *after* the event.
   `{days: N}`. (Minutes within 30 days.)
 - **`cadence`** — a fresh record of this type at least every N months, measured
@@ -94,6 +99,10 @@ Exactly **one** timing kind must be present:
   reviewed annually.)
 - **`one_off`** — a single fixed due date. `{due: YYYY-MM-DD}`. (A charity
   filing due this year.)
+- **`due`** — the same date every year. `{month: M, day: D}`. (An annual report
+  due on November 1.) Each due date needs its own posting; a late posting is the
+  missed date's, and the row stays red until the next due date is met. See
+  [`../evaluate.md`](../evaluate.md).
 
 Zero kinds, or two, fails the build.
 

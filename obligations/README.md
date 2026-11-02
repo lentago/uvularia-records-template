@@ -15,6 +15,11 @@ Each rule names which record `type` satisfies it and exactly **one** timing kind
 | `lag` | posted no later than this many days *after* the event | minutes within 30 days |
 | `cadence` | a fresh record at least every N months | a policy reviewed annually |
 | `one_off` | a single fixed due date | a filing due this year |
+| `due` | the same date every year, `{month, day}` | an annual report due on November 1 |
+
+A rule may also carry a `scope_note`: one plain sentence saying what it does not
+assert, shown under its title on the board. The pack's 12-month reminders carry
+one, so a green row is not read as legal standing.
 
 Obligations encode **posting mechanics, not legal interpretation.** The
 not-legal-advice disclaimer lives in your Ask-rules repo's `policy.yaml`; each
