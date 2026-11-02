@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://lentago.github.io/uvularia/core/schema/obligation.schema.json",
   "title": "Obligation",
-  "description": "A rule about records: which record type satisfies it, and exactly one of four timing kinds. Encodes posting mechanics, never legal interpretation.",
+  "description": "A rule about records: which record type satisfies it, and exactly one of five timing kinds. Encodes posting mechanics, never legal interpretation.",
   "type": "object",
   "additionalProperties": false,
   "required": ["id", "title", "pack", "record_type", "subjects", "source", "disclaimer_ref"],
@@ -14,16 +14,23 @@
     "subjects": { "type": "array", "items": { "type": "string", "minLength": 1 } },
     "source": { "type": "string", "minLength": 1 },
     "disclaimer_ref": { "type": "string", "minLength": 1 },
+    "scope_note": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What the rule does not assert, in one plain sentence, shown beside its row on the board. A rule that stands in for a requirement it cannot encode (a 12-month reminder for a fixed statutory date, say) says so here, so a green row is not read as legal standing."
+    },
     "lead": { "$ref": "#/$defs/lead" },
     "lag": { "$ref": "#/$defs/lag" },
     "cadence": { "$ref": "#/$defs/cadence" },
-    "one_off": { "$ref": "#/$defs/one_off" }
+    "one_off": { "$ref": "#/$defs/one_off" },
+    "due": { "$ref": "#/$defs/due" }
   },
   "oneOf": [
     { "required": ["lead"] },
     { "required": ["lag"] },
     { "required": ["cadence"] },
-    { "required": ["one_off"] }
+    { "required": ["one_off"] },
+    { "required": ["due"] }
   ],
   "$defs": {
     "slug": {
@@ -49,6 +56,12 @@
           "type": "array",
           "description": "Dates (YYYY-MM-DD) whose hours do not count toward the lead window, such as legal holidays. Data, not code: a pack ships the list.",
           "items": { "$ref": "#/$defs/iso_date" }
+        },
+        "calendar_years": {
+          "type": "array",
+          "description": "The years for which exclude_dates is complete. A window that reaches a day in any other year has no calendar to count with, so the row is no-data rather than counting that year's holidays as working days. Omit it and every year is taken as complete.",
+          "minItems": 1,
+          "items": { "type": "integer", "minimum": 1900, "maximum": 2999 }
         }
       },
       "oneOf": [
@@ -81,6 +94,16 @@
       "required": ["due"],
       "properties": {
         "due": { "$ref": "#/$defs/iso_date" }
+      }
+    },
+    "due": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The same date every year, such as an annual report due on November 1. Each due date needs its own posting, published in the year that ends on it. Due dates are settled oldest first: a posting after a missed due date is that date's late posting, and the next due date needs another. A day past the end of a month (February 29 in other years) falls on the month's last day.",
+      "required": ["month", "day"],
+      "properties": {
+        "month": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "day": { "type": "integer", "minimum": 1, "maximum": 31 }
       }
     }
   }

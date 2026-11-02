@@ -17,9 +17,11 @@ What goes on the page:
     server-side time the publish workflow stamped (never an author's clock);
   * "evaluated", the ``evaluated_at`` on the standing rows: when the board was
     last judged, by a publish or by the scheduled re-evaluate workflow;
-  * one row per obligation in ``standing.json``: its title, its state as a word
-    on a colour, its deadline, and the record that satisfies it, linked to the
-    record file on GitHub;
+  * one row per obligation in ``standing.json``: its title, with the rule's
+    ``scope_note`` under it when it has one (what the rule does not assert, so a
+    green row is not read as legal standing), its state as a word on a colour,
+    its deadline, and the record that satisfies it, linked to the record file on
+    GitHub;
   * the most recent records in the corpus.
 
 **Never a fake green.** A missing or unreadable ``standing.json``, or one that
@@ -212,6 +214,25 @@ def read_obligation_titles(vault):
         return {}
 
 
+def read_scope_notes(vault):
+    """``{obligation id: scope_note}`` for the rules that carry one; empty if
+    unreadable. A missing note is simply not shown."""
+    try:
+        return {o["id"]: o["scope_note"] for o in evaluate.load_obligations(Path(vault))
+                if isinstance(o.get("scope_note"), str) and o["scope_note"].strip()}
+    except (*_READ_ERRORS, KeyError, TypeError, AttributeError):
+        return {}
+
+
+def obligation_cell(oid, titles, notes):
+    """The row heading: the rule's title, and its scope note under it."""
+    note = notes.get(oid)
+    title = titles.get(oid) or oid
+    if not note:
+        return el("th", title, scope="row")
+    return el("th", title, el("span", note, class_="scope muted"), scope="row")
+
+
 # --------------------------------------------------------------------------- #
 # A tiny HTML builder. Text is escaped unless it is already an Html fragment,  #
 # so nothing read from a file can inject markup.                               #
@@ -283,7 +304,7 @@ def record_link(record_id, corpus_by_id, repo):
     return el("a", text, href=url) if url else el("code", record_id)
 
 
-def board_section(rows, titles, corpus_by_id, repo, evaluated=None, now=None):
+def board_section(rows, titles, corpus_by_id, repo, evaluated=None, now=None, notes=None):
     if rows is None:
         return el("section",
                   el("h2", "Is it posted?"),
@@ -298,7 +319,7 @@ def board_section(rows, titles, corpus_by_id, repo, evaluated=None, now=None):
     now = now or datetime.now(timezone.utc)
     lapses = [row_lapse(r, evaluated) for r in rows]
     body = [el("tr",
-               el("th", titles.get(r["id"]) or r["id"], scope="row"),
+               obligation_cell(r["id"], titles, notes or {}),
                state_cell(r["state"], lapse, now),
                el("td", r["deadline"] or el("span", "none", class_="muted")),
                el("td", record_link(r["satisfied_by"], corpus_by_id, repo)))
@@ -397,6 +418,7 @@ caption { text-align: left; padding-bottom: 0.5rem; color: #595959; }
 th, td { text-align: left; vertical-align: top; padding: 0.5rem; border-bottom: 1px solid #d0d7de; }
 thead th { font-size: 0.9rem; }
 tbody th { font-weight: 600; }
+.scope { display: block; font-weight: 400; font-size: 0.85rem; margin-top: 0.2rem; }
 .state { display: inline-block; padding: 0.1em 0.6em; border-radius: 999px; color: #ffffff;
   font-size: 0.85rem; font-weight: 700; white-space: nowrap; }
 .muted { color: #595959; }
@@ -408,7 +430,7 @@ footer { margin-top: 2rem; font-size: 0.9rem; color: #595959; }
 """
 
 
-def render_page(title, rows, titles, corpus, receipt, repo, evaluated=None, now=None):
+def render_page(title, rows, titles, corpus, receipt, repo, evaluated=None, now=None, notes=None):
     corpus_by_id = {e["doc_id"]: e for e in corpus or []}
     footer = el("footer",
                 "Times are server-side times in UTC. The data behind this page: ",
@@ -427,7 +449,7 @@ def render_page(title, rows, titles, corpus, receipt, repo, evaluated=None, now=
               el("h1", title),
               published_line(receipt, repo),
               evaluated_line(evaluated),
-              board_section(rows, titles, corpus_by_id, repo, evaluated, now),
+              board_section(rows, titles, corpus_by_id, repo, evaluated, now, notes),
               recent_section(corpus, repo)),
            footer,
            el("script", Html(SCRIPT))),
@@ -442,6 +464,7 @@ def build(vault, artifacts, repo, now=None):
         title=read_title(vault),
         rows=rows,
         titles=read_obligation_titles(vault),
+        notes=read_scope_notes(vault),
         corpus=bundle["records"] if bundle else None,
         receipt=receipt,
         repo=repo,
