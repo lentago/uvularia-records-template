@@ -1,0 +1,16 @@
+{
+  "id": "annual-report-november-1",
+  "title": "Annual report filed by November 1",
+  "pack": "ma",
+  "record_type": "report",
+  "subjects": [
+    "annual-report"
+  ],
+  "source": "Example only: a fixed yearly due date.",
+  "disclaimer_ref": "policy.yaml#not-legal-advice",
+  "scope_note": "Mechanics only: whether this date applies to your organization is for your counsel.",
+  "due": {
+    "month": 11,
+    "day": 1
+  }
+}
