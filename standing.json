@@ -6,6 +6,8 @@
     "deadline": null,
     "published_at": null,
     "gap": null,
-    "history": null
+    "history": null,
+    "evaluated_at": "2026-11-02T00:04:38Z",
+    "valid_until": "2026-11-03T00:04:38Z"
   }
 ]
