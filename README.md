@@ -427,6 +427,10 @@ diverge from the upstream the pin names. To update, bump the ref in `CORE_VERSIO
 and run [`scripts/sync-core.sh`](scripts/sync-core.sh), which re-downloads `core/`
 at that ref so your copy stays one `git diff` from upstream.
 
+## License
+
+The template's code and scaffolding are MIT-licensed; see [LICENSE](LICENSE). The records your organization adds are yours, under whatever terms you choose.
+
 ---
 
 > Part of [uvularia](https://github.com/lentago/uvularia) by Lentago Labs.
