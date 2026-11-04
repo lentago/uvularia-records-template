@@ -1,0 +1,28 @@
+# template-update: where this repository's later template changes come from,
+# and what an update must never touch.
+#
+# This file is yours. An update never changes it, so edit the keep list freely.
+# scripts/template-update.py reads it; .github/workflows/template-update.yml
+# runs that script once a week and opens a pull request for you to review.
+
+# The template this repository was made from, and the branch to follow.
+source = "lentago/uvularia-records-template"
+branch = "main"
+
+# Paths that are yours alone. An update never adds, changes or removes anything
+# here. A path ending in "/" is a whole folder. Everything else follows the
+# template, and where you have changed a file the template also changed, the
+# two are merged line by line in the pull request.
+#
+# Add a path here when you have made a template file your own and do not want
+# the template's later versions of it. If you pin core/ with
+# scripts/sync-core.sh, add "core/".
+keep = [
+  "records/",            # your records: never touched (no silent change)
+  "receipts/",           # your receipts: append-only, never touched
+  "library/",            # your original documents and their manifest
+  "index.md",            # your organization's front page
+  "validate.toml",       # your settings for the checks
+  ".github/CODEOWNERS",  # your reviewers
+  "LICENSE",
+]
