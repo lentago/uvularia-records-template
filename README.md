@@ -412,6 +412,36 @@ deleted; it is superseded or retracted.
 
 ---
 
+## Getting later template changes
+
+**What you're about to do:** let this repository receive our later fixes as a
+pull request you review. **Why bother:** this repository is a copy of the
+template and never hears about a fix on its own. **How long:** about three
+minutes, once.
+
+1. Make a fine-grained personal access token for **this repository only**, with
+   **Contents**, **Pull requests** and **Workflows** set to *Read and write*
+   (your picture → **Settings → Developer settings → Personal access tokens →
+   Fine-grained tokens**).
+2. Save it as the secret `TEMPLATE_UPDATE_TOKEN` (**Settings → Secrets and
+   variables → Actions**).
+3. Run **Actions → template-update → Run workflow**. It runs every Monday after
+   that.
+
+**How you know it worked:** the run is green and either says you are up to
+date or has opened a pull request titled **Template update: …**, with your
+checks running on it and a description of every file it changed.
+
+[`template-update.yml`](.github/workflows/template-update.yml) runs
+[`scripts/template-update.py`](scripts/template-update.py). A file you never
+changed becomes the template's new version, a file you changed is merged with
+the template's change, and where you both changed the same lines both versions
+are left for you to choose. Your records, receipts and library, `index.md`, `validate.toml` and your reviewers are never touched. That list is `keep` in
+[`.github/template-update.toml`](.github/template-update.toml), a file that is
+yours and that an update never changes. Without the token, the workflow opens
+an issue saying an update is waiting instead. The full rules are in
+[Getting later template changes](https://github.com/lentago/uvularia/blob/main/ADOPTION.md#getting-later-template-changes).
+
 ## About `core/` — vendored, pinned, not hand-edited
 
 The checks and the publish step run the files in [`core/`](core/README.md): the
@@ -426,6 +456,12 @@ core. Do not edit `core/*.py` by hand — if you did, your copy would quietly
 diverge from the upstream the pin names. To update, bump the ref in `CORE_VERSION`
 and run [`scripts/sync-core.sh`](scripts/sync-core.sh), which re-downloads `core/`
 at that ref so your copy stays one `git diff` from upstream.
+
+If you have set up [template updates](#getting-later-template-changes), a newer
+`core/` arrives with them and you don't need the script. Use the script only to
+pin `core/` to a ref of your own choosing, and then add `"core/"` to `keep` in
+[`.github/template-update.toml`](.github/template-update.toml) so the two don't
+fight.
 
 ## License
 
