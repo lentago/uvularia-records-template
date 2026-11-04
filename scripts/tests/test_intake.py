@@ -35,6 +35,12 @@ def read_fixture(name):
     return (FIXTURES / name).read_text(encoding="utf-8")
 
 
+def frontmatter(record):
+    """The YAML between the record's two `---` lines (the hint below it may show
+    an example `source:` block, which is prose, not frontmatter)."""
+    return record.split("\n---\n", 1)[0]
+
+
 def fake_fetch(payload=b"%PDF-1.4 fake pdf bytes\n"):
     """A download() stand-in that writes fixed bytes and succeeds."""
     def _fetch(url, dest):
@@ -167,7 +173,7 @@ class ScaffoldTest(unittest.TestCase):
 
         record = (self.vault / result["record_path"]).read_text(encoding="utf-8")
         self.assertIn("status: draft", record)
-        self.assertNotIn("kind: pdf", record)   # no source block in the frontmatter
+        self.assertNotIn("source:", frontmatter(record))   # no source block yet
         self.assertIn("Add the original document by hand", record)
         # No file was attached, so the note must say exactly that — never that a
         # download failed, which would be a lie when nothing was dragged in (#31).
@@ -175,6 +181,32 @@ class ScaffoldTest(unittest.TestCase):
         self.assertNotIn("could not be downloaded", record)
 
         # A draft needs no source, so it still validates clean.
+        self.assertEqual(self._validate(), [])
+
+    def test_following_the_by_hand_hint_literally_validates(self):
+        # lentago/uvularia#98: the hint said "under library/", the operator wrote
+        # source.file relative to library/, and the first approved record failed.
+        # Now the hint names the exact path from the repository root; following it
+        # word for word must produce a record that validates.
+        result = intake.scaffold(self.vault, read_fixture("without-attachment.md"),
+                                 fetch=fake_fetch())
+        rel = result["record_path"]
+        record = (self.vault / rel).read_text(encoding="utf-8")
+        record_id = Path(rel).stem
+        path = f"library/files/minutes/{record_id}.pdf"
+        self.assertIn(f"`{path}`", record)
+        self.assertIn(f">   file: {path}", record)
+        self.assertIn("start at the top of the repository", record)
+
+        original = self.vault / path
+        original.parent.mkdir(parents=True, exist_ok=True)
+        original.write_bytes(b"%PDF-1.4 the signed minutes\n")
+        digest = intake.sha256_of(original)
+        intake.update_manifest(self.vault, path, digest)
+        frontmatter = (f"source:\n  kind: pdf\n  file: {path}\n  sha256: \"{digest}\"\n"
+                       "status: approved\napproved: 2026-02-01\n")
+        record = record.replace("status: draft\n", frontmatter, 1)
+        (self.vault / rel).write_text(record, encoding="utf-8")
         self.assertEqual(self._validate(), [])
 
     def test_failed_download_still_scaffolds_without_source(self):
@@ -186,7 +218,7 @@ class ScaffoldTest(unittest.TestCase):
         self.assertIn("404", result["attachment"]["reason"])
 
         record = (self.vault / result["record_path"]).read_text(encoding="utf-8")
-        self.assertNotIn("kind: pdf", record)   # no source block in the frontmatter
+        self.assertNotIn("source:", frontmatter(record))   # no source block yet
         self.assertIn("Add the original document by hand", record)
         # A file WAS attached but could not be fetched, so the note says that —
         # the mirror of the no-attachment case above; the two never share wording.
