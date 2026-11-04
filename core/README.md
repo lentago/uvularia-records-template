@@ -43,7 +43,7 @@ The vault layout it expects (CLAUDE.md § Artifacts): `intake/`, `records/<type>
 | # | Check | What it enforces |
 |---|---|---|
 | 1 | `schema` | Every `records/**/*.md` has frontmatter that validates against [`schema/record.schema.json`](schema/record.schema.json). |
-| 2 | `approved_source` | A `status: approved` record has `source` and `approved`; its `source.file` exists under `library/`, and its sha256 matches both the frontmatter and `library/manifest.json`. |
+| 2 | `approved_source` | A `status: approved` record has `source` and `approved`; its `source.file` (a path from the repository root, such as `library/files/minutes/<id>.pdf`) exists, and its sha256 matches both the frontmatter and `library/manifest.json`. |
 | 3 | `visibility` | Every record is `visibility: public` — the vault is public and holds only public records. |
 | 4 | `links` | Relative Markdown links in `records/` and `index.md` resolve. |
 | 5 | `privacy` | A denylist (names, unit numbers) plus email and phone patterns, scanned in record bodies and any text under `library/text/`. A match fails the build and prints the file and line — **never the matched value in full**. |

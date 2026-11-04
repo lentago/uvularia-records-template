@@ -200,9 +200,12 @@ structured fields at the top (the machine surface) and plain English underneath
    record's `id` (for example `2026-01-15-board-minutes.md`).
 3. Fill in the frontmatter. Every field is explained inline and defined in
    [`core/schema/record.schema.json`](core/schema/record.schema.json). Put the
-   original PDF under `library/files/<type>/`, add it to
-   [`library/manifest.json`](library/manifest.json) with its checksum
-   (`sha256sum <file>`), and paste that checksum into the record's `source`.
+   original PDF in `library/files/<type>/`, named like the record. In the
+   record's `source`, set `file` to its path **from the top of the repository**,
+   `library/` included (for example
+   `library/files/minutes/2026-01-15-board-minutes.pdf`), and `sha256` to the
+   output of `sha256sum` on that file. List the same path and checksum in
+   [`library/manifest.json`](library/manifest.json).
 4. Commit on a branch and open a pull request (Obsidian Git, GitHub Desktop, or
    the web editor all work).
 
